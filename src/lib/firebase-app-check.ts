@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ReCaptchaEnterpriseProvider,
+  ReCaptchaV3Provider,
   getLimitedUseToken,
   initializeAppCheck,
   type AppCheck,
@@ -18,7 +18,11 @@ declare global {
 let appCheckInstance: AppCheck | null | undefined;
 
 function appCheckSiteKey() {
-  return process.env.NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY?.trim() || "";
+  return (
+    process.env.NEXT_PUBLIC_RECAPTCHA_V3_SITE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY?.trim() ||
+    ""
+  );
 }
 
 function appEnvironment() {
@@ -61,7 +65,7 @@ export function initializeFirebaseAppCheck() {
 
   appCheckInstance = initializeAppCheck(app, {
     isTokenAutoRefreshEnabled: true,
-    provider: new ReCaptchaEnterpriseProvider(siteKey),
+    provider: new ReCaptchaV3Provider(siteKey),
   });
 
   return appCheckInstance;

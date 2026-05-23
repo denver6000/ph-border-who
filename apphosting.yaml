@@ -49,7 +49,7 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY
+  - variable: NEXT_PUBLIC_RECAPTCHA_V3_SITE_KEY
     value: "6LfKfPksAAAAAPn0xP7y7eZgwhULG3wlZ8SDCo6t"
     availability:
       - BUILD
