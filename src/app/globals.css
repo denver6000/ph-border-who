@@ -69,6 +69,25 @@ a {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  margin-left: auto;
+}
+
+.app-top-action {
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  padding: 0.65rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.app-top-action:hover {
+  color: #111827;
+}
+
+.app-top-action:disabled {
+  cursor: wait;
+  color: #9ca3af;
 }
 
 .app-top-link {
@@ -263,6 +282,148 @@ a {
   line-height: 1.6;
 }
 
+.auth-message-shell,
+.not-found-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #ffffff;
+  padding: 2rem;
+  text-align: center;
+}
+
+.auth-message-text,
+.not-found-title {
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: #111827;
+}
+
+.auth-message-link {
+  margin-top: 1rem;
+  color: #1d4ed8;
+  font-size: 0.95rem;
+}
+
+.login-shell {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.12), transparent 32%),
+    radial-gradient(circle at bottom, rgba(37, 99, 235, 0.08), transparent 30%),
+    #ffffff;
+  padding: 2rem 1.5rem;
+}
+
+.login-background {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.login-mapmark {
+  position: absolute;
+  right: max(4vw, 2rem);
+  top: 50%;
+  width: min(34vw, 320px);
+  transform: translateY(-50%);
+  opacity: 0.18;
+}
+
+.login-mapmark-stroke {
+  stroke: #2563eb;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 12;
+}
+
+.login-mapmark-dot {
+  fill: #38bdf8;
+}
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+}
+
+.login-eyebrow {
+  margin: 0 0 0.8rem;
+  font-size: 0.88rem;
+  color: #6b7280;
+}
+
+.login-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+  font-weight: 600;
+  color: #111827;
+}
+
+.login-form {
+  margin-top: 2rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.login-input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  background: rgba(255, 255, 255, 0.9);
+  color: #111827;
+  padding: 0.95rem 1rem;
+  font-size: 1rem;
+  outline: none;
+}
+
+.login-input:focus {
+  border-color: #2563eb;
+}
+
+.login-button {
+  border: 0;
+  background: #111827;
+  color: #ffffff;
+  padding: 0.95rem 1rem;
+  font-size: 0.96rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-button:hover {
+  background: #1f2937;
+}
+
+.login-button:disabled {
+  cursor: wait;
+  background: #9ca3af;
+}
+
+.login-feedback {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #b91c1c;
+}
+
+.login-github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.4rem;
+  font-size: 0.92rem;
+  color: #374151;
+}
+
+.login-github-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+}
+
 @media (min-width: 640px) {
   .app-top-bar-inner {
     padding: 0 1.5rem;
@@ -294,6 +455,14 @@ a {
 }
 
 @media (max-width: 960px) {
+  .login-mapmark {
+    width: min(52vw, 260px);
+    right: -1.5rem;
+    top: auto;
+    bottom: 1.5rem;
+    transform: none;
+  }
+
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
