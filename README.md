@@ -31,6 +31,25 @@ The strongest lead we used is the BTAA record for the Philippines subnational ad
 
 That is the important external reference for the dataset trail. The “gold” is there, not in this repository.
 
+## What The HDX Codes Mean
+
+Short version:
+
+- `ADM2` = province
+- `ADM3` = city or municipality
+- `ADM4` = barangay
+- `Pcode` = the code/id for that administrative unit inside the dataset
+
+Examples you will see in the import scripts and data:
+
+- `ADM2_EN` or `adm2Name` = province name
+- `ADM3_EN` or `adm3Name` = city or municipality name
+- `ADM4_EN` or `adm4Name` = barangay name
+- `ADM3_PCODE` or `adm3Pcode` = city/municipality code
+- `ADM4_PCODE` or `adm4Pcode` = barangay code
+
+In this project, `ADM4` is the important one because that is the barangay boundary level.
+
 ## Importing Data Into Firebase
 
 Once you have a processed GeoJSON file locally, you can import it into Firestore with the dedicated HDX importer:
@@ -42,20 +61,40 @@ npm run import:firebase:hdx
 Useful flags:
 
 ```powershell
-npm run import:firebase:hdx -- --input=public/boundaries/nueva-ecija-barangays.geojson
-npm run import:firebase:hdx -- --dataset=hdx-nueva-ecija
+npm run import:firebase:hdx -- --input=path\to\philippines-adm4.geojson
+npm run import:firebase:hdx -- --dataset=hdx-philippines-adm4
 npm run import:firebase:hdx -- --chunk-bytes=650000
 npm run import:firebase:hdx -- --dry-run
 ```
 
 The importer fragments the GeoJSON into compressed Firestore chunk documents so the mapping system can read the dataset without storing a huge geometry blob in a single document.
 
+For a nationwide deployment, use a nationwide ADM4 GeoJSON and keep the dataset id aligned with:
+
+```env
+FIRESTORE_BOUNDARY_DATASET_ID=hdx-philippines-adm4
+```
+
+## Data Docs
+
+More complete data documentation lives here:
+
+- [docs/data.md](C:/Users/giyut/Documents/ProjectsForOtherPeeps/CityBaranggay/docs/data.md)
+
+That document explains:
+
+- where the data comes from
+- what `ADM2`, `ADM3`, `ADM4`, and `Pcode` mean
+- how the GeoJSON fields map into this app
+- how the Firestore dataset is structured
+- how to run imports safely
+
 ## Required Environment
 
 For local imports, provide Firebase credentials through environment variables such as:
 
 ```env
-FIREBASE_PROJECT_ID=projct-id-23121
+FIREBASE_PROJECT_ID=hatidgo-1b56d
 FIREBASE_SERVICE_ACCOUNT_PATH=C:\path\to\service-account.json
 ```
 

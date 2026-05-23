@@ -1,20 +1,129 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
-export const DEFAULT_DATASET_ID = "hdx-nueva-ecija";
+export const DEFAULT_DATASET_ID = "hdx-philippines-adm4";
 export const DEFAULT_INPUT_FILE = "public/boundaries/nueva-ecija-barangays.geojson";
 export const DEFAULT_OUTPUT_FILE = "public/boundaries/firestore-nueva-ecija-barangays.geojson";
 export const DATASET_COLLECTION = "boundaryDatasets";
 
+export class ImportScriptError extends Error {
+  constructor(message, { details = [], solutions = [], cause } = {}) {
+    super(message, cause ? { cause } : undefined);
+    this.name = "ImportScriptError";
+    this.details = details;
+    this.solutions = solutions;
+  }
+}
+
 export function parseArgs(argv) {
-  return new Map(
-    argv.map((arg) => {
-      const [key, ...rest] = arg.replace(/^--/, "").split("=");
-      return [key, rest.length ? rest.join("=") : "true"];
-    }),
-  );
+  const parsed = new Map();
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const raw = argv[index];
+
+    if (!raw.startsWith("--")) {
+      continue;
+    }
+
+    const normalized = raw.replace(/^--/, "");
+
+    if (normalized.includes("=")) {
+      const [key, ...rest] = normalized.split("=");
+      parsed.set(key, rest.join("="));
+      continue;
+    }
+
+    const next = argv[index + 1];
+
+    if (next && !next.startsWith("--")) {
+      parsed.set(normalized, next);
+      index += 1;
+      continue;
+    }
+
+    parsed.set(normalized, "true");
+  }
+
+  return parsed;
+}
+
+export function loadLocalEnvFiles(cwd = process.cwd()) {
+  const candidates = [".env.local", ".env"];
+
+  for (const candidate of candidates) {
+    const envPath = path.resolve(cwd, candidate);
+
+    if (!existsSync(envPath)) {
+      continue;
+    }
+
+    const raw = readFileSync(envPath, "utf8");
+    const lines = raw.split(/\r?\n/);
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+
+      const separatorIndex = trimmed.indexOf("=");
+
+      if (separatorIndex <= 0) {
+        continue;
+      }
+
+      const key = trimmed.slice(0, separatorIndex).trim();
+      let value = trimmed.slice(separatorIndex + 1).trim();
+
+      if (
+        (value.startsWith("\"") && value.endsWith("\"")) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      if (!(key in process.env)) {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+export function printImportError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const details = Array.isArray(error?.details) ? error.details : [];
+  const solutions = Array.isArray(error?.solutions) ? error.solutions : [];
+
+  console.error("");
+  console.error("[HDX Import] Import failed");
+  console.error(`Reason: ${message}`);
+
+  if (details.length) {
+    console.error("");
+    console.error("Details:");
+
+    for (const detail of details) {
+      console.error(`- ${detail}`);
+    }
+  }
+
+  if (solutions.length) {
+    console.error("");
+    console.error("Possible fixes:");
+
+    for (const solution of solutions) {
+      console.error(`- ${solution}`);
+    }
+  }
+
+  if (error instanceof Error && error.stack && !(error instanceof ImportScriptError)) {
+    console.error("");
+    console.error(error.stack);
+  }
 }
 
 export function getAdminDb() {
@@ -23,11 +132,55 @@ export function getAdminDb() {
     const serviceAccountPath =
       process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? process.env.GOOGLE_APPLICATION_CREDENTIALS;
     const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const serviceAccount = serviceAccountJson
-      ? JSON.parse(serviceAccountJson)
-      : serviceAccountPath
-        ? JSON.parse(readFileSync(serviceAccountPath, "utf8"))
-        : null;
+    let serviceAccount = null;
+
+    if (!projectId) {
+      throw new ImportScriptError("Missing Firebase project id.", {
+        details: ["Neither FIREBASE_PROJECT_ID nor NEXT_PUBLIC_FIREBASE_PROJECT_ID is set."],
+        solutions: [
+          "Set FIREBASE_PROJECT_ID in your shell or .env before running the import.",
+          "If you are importing locally, also set FIREBASE_SERVICE_ACCOUNT_PATH to a valid service account JSON file.",
+        ],
+      });
+    }
+
+    if (serviceAccountJson) {
+      try {
+        serviceAccount = JSON.parse(serviceAccountJson);
+      } catch (error) {
+        throw new ImportScriptError("FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON.", {
+          details: ["The environment variable was present but could not be parsed."],
+          solutions: [
+            "Replace FIREBASE_SERVICE_ACCOUNT_KEY with a valid JSON string.",
+            "Or remove it and use FIREBASE_SERVICE_ACCOUNT_PATH instead.",
+          ],
+          cause: error,
+        });
+      }
+    } else if (serviceAccountPath) {
+      if (!existsSync(serviceAccountPath)) {
+        throw new ImportScriptError("Firebase service account file was not found.", {
+          details: [`Path: ${serviceAccountPath}`],
+          solutions: [
+            "Check FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS.",
+            "Point it to an existing service account JSON file for the target Firebase project.",
+          ],
+        });
+      }
+
+      try {
+        serviceAccount = JSON.parse(readFileSync(serviceAccountPath, "utf8"));
+      } catch (error) {
+        throw new ImportScriptError("Firebase service account file could not be parsed.", {
+          details: [`Path: ${serviceAccountPath}`],
+          solutions: [
+            "Make sure the file is valid JSON.",
+            "Download a fresh service account key if the file was truncated or edited.",
+          ],
+          cause: error,
+        });
+      }
+    }
 
     if (serviceAccount) {
       initializeApp({

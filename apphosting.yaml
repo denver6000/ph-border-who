@@ -50,7 +50,7 @@ env:
       - BUILD
       - RUNTIME
   - variable: FIRESTORE_BOUNDARY_DATASET_ID
-    value: "hdx-nueva-ecija"
+    value: "hdx-philippines-adm4"
     availability:
       - BUILD
       - RUNTIME

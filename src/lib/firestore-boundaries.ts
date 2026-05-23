@@ -4,7 +4,7 @@ import { getAdminFirestore } from "@/lib/firebase-admin";
 import type { BoundaryFeature, BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/overpass";
 
 const DATASET_COLLECTION = "boundaryDatasets";
-const DEFAULT_DATASET_ID = "hdx-nueva-ecija";
+const DEFAULT_DATASET_ID = "hdx-philippines-adm4";
 
 type FirestoreDataset = {
   boundaryMode?: "indicative";
