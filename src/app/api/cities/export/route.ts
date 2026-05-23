@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
 import { resolveCityBoundary } from "@/lib/city-boundaries";
 import { buildCityZoneExportPayload } from "@/lib/zone-export";
 
@@ -25,8 +24,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await verifyAppCheckRequest(request);
-
     const boundary = await resolveCityBoundary({
       city,
       country,
@@ -54,16 +51,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    if (error instanceof AppCheckVerificationError) {
-      return NextResponse.json(
-        {
-          error: error.message,
-          details: error.details,
-        },
-        { status: error.status },
-      );
-    }
-
     const message = error instanceof Error ? error.message : "Unknown error";
 
     return NextResponse.json(

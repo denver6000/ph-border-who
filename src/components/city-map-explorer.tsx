@@ -2,8 +2,6 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { fetchWithAppCheck } from "@/lib/app-check-fetch";
-
 type BoundaryFeature = {
   type: "Feature";
   geometry: {
@@ -220,7 +218,7 @@ export function CityMapExplorer() {
 
       try {
         const params = new URLSearchParams({ city: DEFAULT_CITY });
-        const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
+        const response = await fetch(`/api/cities?${params.toString()}`);
         const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
 
         if (!response.ok) {
@@ -343,7 +341,7 @@ export function CityMapExplorer() {
     setSelectedFeatureId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
+      const response = await fetch(`/api/cities?${params.toString()}`);
       const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
 
       if (!response.ok) {
@@ -383,7 +381,7 @@ export function CityMapExplorer() {
     setSelectedFeatureId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/boundary?${params.toString()}`);
+      const response = await fetch(`/api/cities/boundary?${params.toString()}`);
       const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
 
       if (!response.ok) {
@@ -421,7 +419,7 @@ export function CityMapExplorer() {
     setExporting(true);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/export?${params.toString()}`);
+      const response = await fetch(`/api/cities/export?${params.toString()}`);
 
       if (!response.ok) {
         const payload = (await response.json()) as { details?: string; error?: string };
