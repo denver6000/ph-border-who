@@ -1,0 +1,40 @@
+{
+  "name": "citybaranggay",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "extract:barangay-map-search": "node scripts/extract-barangay-map-search.mjs",
+    "export:firestore-boundaries": "node scripts/export-firestore-boundaries.mjs",
+    "import:hdx": "node scripts/import-hdx-boundaries.mjs",
+    "import:firestore-boundaries": "node scripts/import-boundaries-to-firestore.mjs",
+    "import:firestore-boundaries:dry-run": "node scripts/import-boundaries-to-firestore.mjs --dry-run",
+    "prerender:nueva-ecija": "node scripts/prerender-hdx-province.mjs --province=\"Nueva Ecija\"",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@turf/turf": "^7.3.5",
+    "extract-zip": "^2.0.1",
+    "firebase": "^12.13.0",
+    "firebase-admin": "^13.10.0",
+    "leaflet": "^1.9.4",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "shapefile": "^0.6.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/google.maps": "^3.64.1",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,172 @@
+{
+  "boundaryMode": "indicative",
+  "caveat": "Indicative boundaries only; not official legal boundary data.",
+  "cityCount": 32,
+  "count": 849,
+  "generatedAt": "2026-05-23T00:12:44.735Z",
+  "province": "Nueva Ecija",
+  "source": "HDX/OCHA Philippines COD-AB ADM4",
+  "sourceUrl": "https://data.humdata.org/dataset/cod-ab-phl",
+  "cities": [
+    {
+      "adm3Name": "Aliaga",
+      "adm3Pcode": "PH0304901",
+      "barangayCount": 26
+    },
+    {
+      "adm3Name": "Bongabon",
+      "adm3Pcode": "PH0304902",
+      "barangayCount": 28
+    },
+    {
+      "adm3Name": "Cabanatuan City",
+      "adm3Pcode": "PH0304903",
+      "barangayCount": 89
+    },
+    {
+      "adm3Name": "Cabiao",
+      "adm3Pcode": "PH0304904",
+      "barangayCount": 23
+    },
+    {
+      "adm3Name": "Carranglan",
+      "adm3Pcode": "PH0304905",
+      "barangayCount": 17
+    },
+    {
+      "adm3Name": "City of Gapan",
+      "adm3Pcode": "PH0304908",
+      "barangayCount": 23
+    },
+    {
+      "adm3Name": "Cuyapo",
+      "adm3Pcode": "PH0304906",
+      "barangayCount": 51
+    },
+    {
+      "adm3Name": "Gabaldon (Bitulok & Sabani)",
+      "adm3Pcode": "PH0304907",
+      "barangayCount": 16
+    },
+    {
+      "adm3Name": "General Mamerto Natividad",
+      "adm3Pcode": "PH0304909",
+      "barangayCount": 20
+    },
+    {
+      "adm3Name": "General Tinio (Papaya)",
+      "adm3Pcode": "PH0304910",
+      "barangayCount": 13
+    },
+    {
+      "adm3Name": "Guimba",
+      "adm3Pcode": "PH0304911",
+      "barangayCount": 64
+    },
+    {
+      "adm3Name": "Jaen",
+      "adm3Pcode": "PH0304912",
+      "barangayCount": 27
+    },
+    {
+      "adm3Name": "Laur",
+      "adm3Pcode": "PH0304913",
+      "barangayCount": 17
+    },
+    {
+      "adm3Name": "Licab",
+      "adm3Pcode": "PH0304914",
+      "barangayCount": 11
+    },
+    {
+      "adm3Name": "Llanera",
+      "adm3Pcode": "PH0304915",
+      "barangayCount": 22
+    },
+    {
+      "adm3Name": "Lupao",
+      "adm3Pcode": "PH0304916",
+      "barangayCount": 24
+    },
+    {
+      "adm3Name": "Nampicuan",
+      "adm3Pcode": "PH0304918",
+      "barangayCount": 21
+    },
+    {
+      "adm3Name": "Palayan City (Capital)",
+      "adm3Pcode": "PH0304919",
+      "barangayCount": 19
+    },
+    {
+      "adm3Name": "Pantabangan",
+      "adm3Pcode": "PH0304920",
+      "barangayCount": 14
+    },
+    {
+      "adm3Name": "Peñaranda",
+      "adm3Pcode": "PH0304921",
+      "barangayCount": 10
+    },
+    {
+      "adm3Name": "Quezon",
+      "adm3Pcode": "PH0304922",
+      "barangayCount": 16
+    },
+    {
+      "adm3Name": "Rizal",
+      "adm3Pcode": "PH0304923",
+      "barangayCount": 26
+    },
+    {
+      "adm3Name": "San Antonio",
+      "adm3Pcode": "PH0304924",
+      "barangayCount": 16
+    },
+    {
+      "adm3Name": "San Isidro",
+      "adm3Pcode": "PH0304925",
+      "barangayCount": 9
+    },
+    {
+      "adm3Name": "San Jose City",
+      "adm3Pcode": "PH0304926",
+      "barangayCount": 38
+    },
+    {
+      "adm3Name": "San Leonardo",
+      "adm3Pcode": "PH0304927",
+      "barangayCount": 15
+    },
+    {
+      "adm3Name": "Santa Rosa",
+      "adm3Pcode": "PH0304928",
+      "barangayCount": 33
+    },
+    {
+      "adm3Name": "Santo Domingo",
+      "adm3Pcode": "PH0304929",
+      "barangayCount": 24
+    },
+    {
+      "adm3Name": "Science City of Muñoz",
+      "adm3Pcode": "PH0304917",
+      "barangayCount": 37
+    },
+    {
+      "adm3Name": "Talavera",
+      "adm3Pcode": "PH0304930",
+      "barangayCount": 53
+    },
+    {
+      "adm3Name": "Talugtug",
+      "adm3Pcode": "PH0304931",
+      "barangayCount": 28
+    },
+    {
+      "adm3Name": "Zaragoza",
+      "adm3Pcode": "PH0304932",
+      "barangayCount": 19
+    }
+  ]
+}
