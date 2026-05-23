@@ -287,7 +287,9 @@ a {
   display: grid;
   min-height: 100vh;
   place-items: center;
-  background: #ffffff;
+  background:
+    radial-gradient(circle at top, rgba(14, 165, 233, 0.1), transparent 30%),
+    #ffffff;
   padding: 2rem;
   text-align: center;
 }
@@ -299,10 +301,29 @@ a {
   color: #111827;
 }
 
+.not-found-panel,
+.login-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  padding: 2rem;
+  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+}
+
+.not-found-mapmark {
+  display: block;
+  width: min(36vw, 180px);
+  margin: 0 auto 1.5rem;
+  opacity: 0.28;
+}
+
 .auth-message-link {
   margin-top: 1rem;
   color: #1d4ed8;
   font-size: 0.95rem;
+  display: inline-block;
 }
 
 .login-shell {
@@ -345,9 +366,7 @@ a {
 }
 
 .login-panel {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 420px);
+  backdrop-filter: blur(10px);
 }
 
 .login-eyebrow {
@@ -461,6 +480,10 @@ a {
     top: auto;
     bottom: 1.5rem;
     transform: none;
+  }
+
+  .not-found-mapmark {
+    width: min(46vw, 160px);
   }
 
   .workspace {
