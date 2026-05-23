@@ -9,43 +9,58 @@ runConfig:
 
 # Environment variables and secrets.
 env:
+  - variable: APP_ENV
+    value: "prod"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_APP_ENV
+    value: "prod"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: "AIzaSyCmU9TbKBWGRs6GRyQoQLwUjN-IT8-jS7E"
+    value: "AIzaSyBB7DkBo5sBDVVXKXmqsNcImRahvpemCyg"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-    value: "hatidgo-1b56d.firebaseapp.com"
+    value: "bounds-finder.firebaseapp.com"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
-    value: "hatidgo-1b56d"
+    value: "bounds-finder"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    value: "hatidgo-1b56d.firebasestorage.app"
+    value: "bounds-finder.firebasestorage.app"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-    value: "690616663394"
+    value: "745700625215"
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-    value: "1:690616663394:web:fb0bf9b7a4c9995698003b"
+    value: "1:745700625215:web:65c8c6895a7f47ef14218a"
     availability:
       - BUILD
       - RUNTIME
-  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
-    value: "G-G7J2JCCTVE"
+  - variable: NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY
+    value: "6LfKfPksAAAAAPn0xP7y7eZgwhULG3wlZ8SDCo6t"
     availability:
       - BUILD
       - RUNTIME
   - variable: FIREBASE_PROJECT_ID
-    value: "hatidgo-1b56d"
+    value: "bounds-finder"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: FIREBASE_APP_CHECK_ENABLED
+    value: "true"
     availability:
       - BUILD
       - RUNTIME

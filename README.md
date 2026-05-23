@@ -94,7 +94,7 @@ That document explains:
 For local imports, provide Firebase credentials through environment variables such as:
 
 ```env
-FIREBASE_PROJECT_ID=hatidgo-1b56d
+FIREBASE_PROJECT_ID=bounds-finder
 FIREBASE_SERVICE_ACCOUNT_PATH=C:\path\to\service-account.json
 ```
 

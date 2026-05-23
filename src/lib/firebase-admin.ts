@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { cert, getApp, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 function loadServiceAccount() {
@@ -20,7 +20,7 @@ function loadServiceAccount() {
   return null;
 }
 
-export function getAdminFirestore() {
+export function getAdminApp(): App {
   if (!getApps().length) {
     const serviceAccount = loadServiceAccount();
     const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -36,6 +36,12 @@ export function getAdminFirestore() {
       });
     }
   }
+
+  return getApp();
+}
+
+export function getAdminFirestore() {
+  getAdminApp();
 
   return getFirestore();
 }
