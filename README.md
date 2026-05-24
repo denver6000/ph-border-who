@@ -52,24 +52,33 @@ In this project, `ADM4` is the important one because that is the barangay bounda
 
 ## Importing Data Into Firebase
 
-Once you have a processed GeoJSON file locally, you can import it into Firestore with the dedicated HDX importer:
+Once you have built the HDX cache locally, you can import the entire Philippines dataset into Firestore with the dedicated HDX importer:
 
 ```powershell
 npm run import:firebase:hdx
 ```
 
+That command now reads from:
+
+```txt
+data/hdx/cod-ab-phl/manifest.json
+data/hdx/cod-ab-phl/adm4/*.ndjson
+```
+
+and imports all available Philippine cities / municipalities in the cache.
+
 Useful flags:
 
 ```powershell
-npm run import:firebase:hdx -- --input=path\to\philippines-adm4.geojson
+npm run import:hdx
 npm run import:firebase:hdx -- --dataset=hdx-philippines-adm4
-npm run import:firebase:hdx -- --chunk-bytes=650000
+npm run import:firebase:hdx -- --cache-dir=path\to\cod-ab-phl
 npm run import:firebase:hdx -- --dry-run
 ```
 
-The importer fragments the GeoJSON into compressed Firestore chunk documents so the mapping system can read the dataset without storing a huge geometry blob in a single document.
+The importer fragments the nationwide cache into compressed Firestore chunk documents so the mapping system can read the dataset without storing a huge geometry blob in a single document.
 
-For a nationwide deployment, use a nationwide ADM4 GeoJSON and keep the dataset id aligned with:
+For a nationwide deployment, keep the dataset id aligned with:
 
 ```env
 FIRESTORE_BOUNDARY_DATASET_ID=hdx-philippines-adm4

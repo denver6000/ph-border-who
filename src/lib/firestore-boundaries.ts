@@ -1,10 +1,11 @@
 import { gunzipSync } from "node:zlib";
 
 import { getAdminFirestore } from "@/lib/firebase-admin";
-import type { BoundaryFeature, BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/overpass";
+import type { BoundaryFeature, BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/boundary-types";
 
 const DATASET_COLLECTION = "boundaryDatasets";
 const DEFAULT_DATASET_ID = "hdx-philippines-adm4";
+const CITY_INDEX_CACHE_TTL_MS = 10 * 60 * 1000;
 
 type FirestoreDataset = {
   boundaryMode?: "indicative";
@@ -32,6 +33,22 @@ type FirestoreChunk = {
   featuresPayload?: string;
   index?: number;
 };
+
+type FirestoreCityIndexEntry = {
+  cityKey?: string;
+  cityName: string;
+  cityPcode?: string;
+  normalizedCityName: string;
+  province?: string;
+};
+
+let cityIndexCache:
+  | {
+      datasetId: string;
+      entries: FirestoreCityIndexEntry[];
+      expiresAt: number;
+    }
+  | null = null;
 
 function decodeChunkFeatures(chunk: FirestoreChunk) {
   if (chunk.featuresEncoding === "gzip-base64" && typeof chunk.featuresPayload === "string") {
@@ -87,35 +104,68 @@ export async function queryFirestoreCities({
   }
 
   try {
-    const db = getAdminFirestore();
-    const datasetRef = db.collection(DATASET_COLLECTION).doc(firestoreDatasetId());
-    const [datasetSnapshot, citiesSnapshot] = await Promise.all([datasetRef.get(), datasetRef.collection("cities").get()]);
-
-    if (!datasetSnapshot.exists || citiesSnapshot.empty) {
-      return [];
-    }
-
     const expected = normalizeName(city);
+    const cities = await getFirestoreCityIndex();
 
-    return citiesSnapshot.docs
-      .map((doc) => doc.data() as FirestoreCity)
+    return cities
       .filter((candidate) => {
-        const normalized = candidate.normalizedCityName ?? normalizeName(candidate.cityName ?? "");
+        const normalized = candidate.normalizedCityName;
         return normalized.includes(expected) || expected.includes(normalized);
       })
-      .sort((left, right) => (left.cityName ?? "").localeCompare(right.cityName ?? ""))
+      .sort((left, right) => left.cityName.localeCompare(right.cityName))
       .map((candidate) => ({
         adminLevel: "dataset",
         borderType: "firestore",
-        id: numericIdFromCode(candidate.cityPcode ?? candidate.cityKey, candidate.cityName ?? "city"),
+        id: numericIdFromCode(candidate.cityPcode ?? candidate.cityKey, candidate.cityName),
         locationLabel: candidate.province,
-        name: candidate.cityName ?? "Unknown city",
+        name: candidate.cityName,
         ref: candidate.cityPcode ?? candidate.cityKey,
         sourceType: "firestore",
       }));
   } catch {
     return [];
   }
+}
+
+async function getFirestoreCityIndex() {
+  const datasetId = firestoreDatasetId();
+  const now = Date.now();
+
+  if (cityIndexCache && cityIndexCache.datasetId === datasetId && cityIndexCache.expiresAt > now) {
+    return cityIndexCache.entries;
+  }
+
+  const db = getAdminFirestore();
+  const datasetRef = db.collection(DATASET_COLLECTION).doc(datasetId);
+  const [datasetSnapshot, citiesSnapshot] = await Promise.all([datasetRef.get(), datasetRef.collection("cities").get()]);
+
+  if (!datasetSnapshot.exists || citiesSnapshot.empty) {
+    cityIndexCache = {
+      datasetId,
+      entries: [],
+      expiresAt: now + CITY_INDEX_CACHE_TTL_MS,
+    };
+    return [];
+  }
+
+  const entries = citiesSnapshot.docs
+    .map((doc) => doc.data() as FirestoreCity)
+    .filter((candidate) => Boolean(candidate.cityName))
+    .map((candidate) => ({
+      cityKey: candidate.cityKey,
+      cityName: candidate.cityName!,
+      cityPcode: candidate.cityPcode,
+      normalizedCityName: candidate.normalizedCityName ?? normalizeName(candidate.cityName ?? ""),
+      province: candidate.province,
+    }));
+
+  cityIndexCache = {
+    datasetId,
+    entries,
+    expiresAt: now + CITY_INDEX_CACHE_TTL_MS,
+  };
+
+  return entries;
 }
 
 export async function queryFirestoreBarangayBoundaries({

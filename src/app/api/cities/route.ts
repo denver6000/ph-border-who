@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
 import { queryFirestoreCities } from "@/lib/firestore-boundaries";
-import { searchCityBoundaries } from "@/lib/overpass";
 
 export const runtime = "nodejs";
 
@@ -24,39 +23,31 @@ export async function GET(request: NextRequest) {
     await verifyAppCheckRequest(request);
 
     const firestoreCities = await queryFirestoreCities({
+    const cities = await queryFirestoreCities({
       city,
     });
 
-    if (firestoreCities.length) {
+    if (!cities.length) {
       return NextResponse.json({
-        cities: firestoreCities,
+        cities: [],
         metadata: {
           city,
           country,
-          count: firestoreCities.length,
+          count: 0,
           generatedAt: new Date().toISOString(),
           source: "firestore",
         },
       });
     }
 
-    const cities = await searchCityBoundaries({
-      city,
-      country,
-    });
-    const overpassCities = cities.map((candidate) => ({
-      ...candidate,
-      sourceType: "overpass" as const,
-    }));
-
     return NextResponse.json({
-      cities: overpassCities,
+      cities,
       metadata: {
         city,
         country,
-        count: overpassCities.length,
+        count: cities.length,
         generatedAt: new Date().toISOString(),
-        source: "overpass",
+        source: "firestore",
       },
     });
   } catch (error) {
@@ -74,7 +65,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "Failed to search city boundaries from Overpass.",
+        error: "Failed to search city boundaries from Firestore.",
         details: message,
       },
       { status: 502 },
