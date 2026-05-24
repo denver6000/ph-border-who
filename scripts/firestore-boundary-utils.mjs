@@ -9,6 +9,8 @@ export const DEFAULT_HDX_CACHE_DIR = "data/hdx/cod-ab-phl";
 export const DEFAULT_OUTPUT_FILE = "public/boundaries/firestore-hdx-philippines-adm4.geojson";
 export const DATASET_COLLECTION = "boundaryDatasets";
 export const DEFAULT_CHUNK_TARGET_BYTES = 650_000;
+export const MAX_BATCH_WRITES = 400;
+export const MAX_BATCH_ESTIMATED_BYTES = 8 * 1024 * 1024;
 
 export class ImportScriptError extends Error {
   constructor(message, { details = [], solutions = [], cause } = {}) {
@@ -19,10 +21,11 @@ export class ImportScriptError extends Error {
   }
 }
 
-export function makeBatchOperation(description, apply) {
+export function makeBatchOperation(description, apply, estimatedBytes = 0) {
   return {
     apply,
     description,
+    estimatedBytes,
   };
 }
 
@@ -263,19 +266,22 @@ export async function commitBatch(db, operations) {
   let batchNumber = 1;
   let totalCommitted = 0;
   let batchDescriptions = [];
+  let batchEstimatedBytes = 0;
 
   for (const operation of operations) {
     const apply = typeof operation === "function" ? operation : operation.apply;
     const description =
       typeof operation === "function" ? operation.description ?? "unnamed operation" : operation.description;
+    const estimatedBytes =
+      typeof operation === "function" ? operation.estimatedBytes ?? 0 : operation.estimatedBytes ?? 0;
 
-    apply(batch);
-    operationCount += 1;
-    batchDescriptions.push(description);
+    const wouldExceedWriteLimit = operationCount > 0 && operationCount + 1 > MAX_BATCH_WRITES;
+    const wouldExceedByteLimit =
+      operationCount > 0 && batchEstimatedBytes + estimatedBytes > MAX_BATCH_ESTIMATED_BYTES;
 
-    if (operationCount === 450) {
+    if (wouldExceedWriteLimit || wouldExceedByteLimit) {
       console.log(
-        `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
+        `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, ~${batchEstimatedBytes.toLocaleString()} bytes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
       );
 
       try {
@@ -284,6 +290,7 @@ export async function commitBatch(db, operations) {
         throw new ImportScriptError(`Firestore batch ${batchNumber} failed during commit.`, {
           details: [
             `Writes in failed batch: ${operationCount}`,
+            `Estimated bytes in failed batch: ${batchEstimatedBytes.toLocaleString()}`,
             `Total writes committed before failure: ${totalCommitted}`,
             `First operation: ${batchDescriptions[0] ?? "n/a"}`,
             `Last operation: ${batchDescriptions[batchDescriptions.length - 1] ?? "n/a"}`,
@@ -302,13 +309,19 @@ export async function commitBatch(db, operations) {
       batch = db.batch();
       operationCount = 0;
       batchDescriptions = [];
+      batchEstimatedBytes = 0;
       batchNumber += 1;
     }
+
+    apply(batch);
+    operationCount += 1;
+    batchDescriptions.push(description);
+    batchEstimatedBytes += estimatedBytes;
   }
 
   if (operationCount > 0) {
     console.log(
-      `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
+      `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, ~${batchEstimatedBytes.toLocaleString()} bytes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
     );
 
     try {
@@ -317,6 +330,7 @@ export async function commitBatch(db, operations) {
       throw new ImportScriptError(`Firestore batch ${batchNumber} failed during commit.`, {
         details: [
           `Writes in failed batch: ${operationCount}`,
+          `Estimated bytes in failed batch: ${batchEstimatedBytes.toLocaleString()}`,
           `Total writes committed before failure: ${totalCommitted}`,
           `First operation: ${batchDescriptions[0] ?? "n/a"}`,
           `Last operation: ${batchDescriptions[batchDescriptions.length - 1] ?? "n/a"}`,

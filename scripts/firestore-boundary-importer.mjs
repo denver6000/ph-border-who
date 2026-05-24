@@ -25,6 +25,10 @@ export function encodedByteLength(features) {
   return Buffer.byteLength(encodeFeatures(features), "utf8");
 }
 
+function estimateJsonByteLength(value) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
 export function groupByCity(features) {
   const grouped = new Map();
 
@@ -431,54 +435,63 @@ export async function importBoundaryCacheToFirestore({
 
   const db = getAdminDb();
   const datasetRef = db.collection(DATASET_COLLECTION).doc(datasetId);
+  const datasetDocument = {
+    boundaryMode: "indicative",
+    caveat: manifest.dataset?.caveat ?? "Indicative boundaries only; not official legal boundary data.",
+    cityCount: cities.length,
+    count: featureCount,
+    datasetId,
+    importedAt: new Date().toISOString(),
+    province: "",
+    source: sourceName,
+    sourceUrl,
+    storage: {
+      chunkTargetBytes,
+      totalChunks,
+    },
+  };
   const operations = [
-    makeBatchOperation(`dataset metadata -> ${datasetRef.path}`, (batch) =>
-      batch.set(datasetRef, {
-        boundaryMode: "indicative",
-        caveat: manifest.dataset?.caveat ?? "Indicative boundaries only; not official legal boundary data.",
-        cityCount: cities.length,
-        count: featureCount,
-        datasetId,
-        importedAt: new Date().toISOString(),
-        province: "",
-        source: sourceName,
-        sourceUrl,
-        storage: {
-          chunkTargetBytes,
-          totalChunks,
-        },
-      }),
+    makeBatchOperation(
+      `dataset metadata -> ${datasetRef.path}`,
+      (batch) => batch.set(datasetRef, datasetDocument),
+      estimateJsonByteLength(datasetDocument),
     ),
   ];
 
   for (const [cityIndex, city] of cities.entries()) {
     const cityRef = datasetRef.collection("cities").doc(city.cityKey);
+    const cityDocument = {
+      cityKey: city.cityKey,
+      cityName: city.cityName,
+      cityPcode: city.cityPcode,
+      chunkCount: city.chunkCount,
+      featureCount: city.featureCount,
+      normalizedCityName: city.normalizedCityName,
+      province: city.province,
+    };
 
     operations.push(
-      makeBatchOperation(`city metadata -> ${city.cityName} (${cityRef.path})`, (batch) =>
-        batch.set(cityRef, {
-          cityKey: city.cityKey,
-          cityName: city.cityName,
-          cityPcode: city.cityPcode,
-          chunkCount: city.chunkCount,
-          featureCount: city.featureCount,
-          normalizedCityName: city.normalizedCityName,
-          province: city.province,
-        }),
+      makeBatchOperation(
+        `city metadata -> ${city.cityName} (${cityRef.path})`,
+        (batch) => batch.set(cityRef, cityDocument),
+        estimateJsonByteLength(cityDocument),
       ),
     );
 
     city.chunks.forEach((chunk, index) => {
       const featuresPayload = encodeFeatures(chunk);
       const chunkRef = cityRef.collection("chunks").doc(String(index).padStart(4, "0"));
+      const chunkDocument = {
+        byteLength: Buffer.byteLength(featuresPayload, "utf8"),
+        featuresEncoding: "gzip-base64",
+        featuresPayload,
+        index,
+      };
       operations.push(
-        makeBatchOperation(`chunk ${index + 1}/${city.chunkCount} -> ${city.cityName} (${chunkRef.path})`, (batch) =>
-          batch.set(chunkRef, {
-          byteLength: Buffer.byteLength(featuresPayload, "utf8"),
-          featuresEncoding: "gzip-base64",
-          featuresPayload,
-          index,
-          }),
+        makeBatchOperation(
+          `chunk ${index + 1}/${city.chunkCount} -> ${city.cityName} (${chunkRef.path})`,
+          (batch) => batch.set(chunkRef, chunkDocument),
+          estimateJsonByteLength(chunkDocument),
         ),
       );
     });
