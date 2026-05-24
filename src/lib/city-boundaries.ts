@@ -1,13 +1,8 @@
 import * as turf from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 
+import type { BoundaryFeatureCollection, BoundaryFeature } from "@/lib/boundary-types";
 import { queryFirestoreBarangayBoundaries } from "@/lib/firestore-boundaries";
-import {
-  queryCityBoundaryByRelationId,
-  queryCityBoundaryBySearch,
-  type BoundaryFeatureCollection,
-  type BoundaryFeature,
-} from "@/lib/overpass";
 
 type ResolveCityBoundaryArgs = {
   city?: string;
@@ -59,14 +54,14 @@ function buildCityBoundaryCollection({
   source,
   sourceType,
 }: {
-  boundaryKind: "actual" | "indicative";
+  boundaryKind: "indicative";
   city: string;
   country: string;
   geometry: Polygon | MultiPolygon;
   id: number;
   province?: string;
   source: string;
-  sourceType: "firestore-hdx-cod-ab" | "relation";
+  sourceType: "firestore-hdx-cod-ab";
 }): BoundaryFeatureCollection {
   return {
     type: "FeatureCollection",
@@ -148,7 +143,6 @@ export async function resolveCityBoundary({
   country = "Philippines",
   locationLabel,
   province,
-  relationId,
 }: ResolveCityBoundaryArgs): Promise<BoundaryFeatureCollection> {
   const firestoreBoundary = await queryFirestoreCityBoundary({
     city,
@@ -160,22 +154,22 @@ export async function resolveCityBoundary({
     return firestoreBoundary;
   }
 
-  if (Number.isFinite(relationId)) {
-    return queryCityBoundaryByRelationId({
-      city,
-      country,
-      locationLabel,
-      relationId: relationId!,
-    });
-  }
-
   if (!city) {
     throw new Error('Missing required "city" query parameter.');
   }
 
-  return queryCityBoundaryBySearch({
-    city,
-    country,
-    province,
-  });
+  return {
+    type: "FeatureCollection",
+    features: [],
+    metadata: {
+      adminLevels: ["6", "7", "8"],
+      boundaryMode: "indicative",
+      city,
+      count: 0,
+      country,
+      generatedAt: new Date().toISOString(),
+      province: province ?? locationLabel,
+      source: "Firestore boundary dataset",
+    },
+  };
 }

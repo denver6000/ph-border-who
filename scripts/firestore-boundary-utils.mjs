@@ -5,9 +5,10 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 export const DEFAULT_DATASET_ID = "hdx-philippines-adm4";
-export const DEFAULT_INPUT_FILE = "public/boundaries/nueva-ecija-barangays.geojson";
-export const DEFAULT_OUTPUT_FILE = "public/boundaries/firestore-nueva-ecija-barangays.geojson";
+export const DEFAULT_HDX_CACHE_DIR = "data/hdx/cod-ab-phl";
+export const DEFAULT_OUTPUT_FILE = "public/boundaries/firestore-hdx-philippines-adm4.geojson";
 export const DATASET_COLLECTION = "boundaryDatasets";
+export const DEFAULT_CHUNK_TARGET_BYTES = 650_000;
 
 export class ImportScriptError extends Error {
   constructor(message, { details = [], solutions = [], cause } = {}) {

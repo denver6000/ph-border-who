@@ -9,6 +9,7 @@ const OVERPASS_API_URLS = ["https://overpass-api.de/api/interpreter", "https://o
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const DEFAULT_MAX_FEATURES = 500;
 const EXCLUDED_PLACE_TYPES = new Set(["city", "country", "island", "municipality", "province", "region", "state", "town"]);
+const NOMINATIM_LOOKUP_TIMEOUT_MS = 2500;
 
 type OverpassCenter = {
   lat: number;
@@ -398,8 +399,10 @@ function buildLocationLabel(tags: Record<string, string>, address?: NominatimAdd
 }
 
 async function reverseLookupCandidate(boundary: CityBoundary) {
-  if (!boundary.center) {
-    return toCityCandidate(boundary);
+  const candidate = toCityCandidate(boundary);
+
+  if (!boundary.center || candidate.locationLabel) {
+    return candidate;
   }
 
   const url = new URL("https://nominatim.openstreetmap.org/reverse");
@@ -411,24 +414,24 @@ async function reverseLookupCandidate(boundary: CityBoundary) {
 
   try {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(NOMINATIM_LOOKUP_TIMEOUT_MS),
       headers: {
         "User-Agent": "CityBaranggay/0.1 (+city candidate labels)",
       },
     });
 
     if (!response.ok) {
-      return toCityCandidate(boundary);
+      return candidate;
     }
 
     const payload = (await response.json()) as NominatimReverseResponse;
-    const candidate = toCityCandidate(boundary);
 
     return {
       ...candidate,
       locationLabel: buildLocationLabel(boundary.tags, payload.address) ?? candidate.locationLabel,
     };
   } catch {
-    return toCityCandidate(boundary);
+    return candidate;
   }
 }
 

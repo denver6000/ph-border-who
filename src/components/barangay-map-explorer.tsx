@@ -67,9 +67,7 @@ type CityCandidate = {
   locationLabel?: string;
   name: string;
   ref?: string;
-  sourceType?: "firestore" | "overpass";
-  wikidata?: string;
-  wikipedia?: string;
+  sourceType?: "firestore";
 };
 
 type CitySearchResponse = {
@@ -175,6 +173,7 @@ export function BarangayMapExplorer() {
   const [cityLoading, setCityLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
   const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mapError, setMapError] = useState<string | null>(null);
@@ -260,6 +259,7 @@ export function BarangayMapExplorer() {
 
         setCityCandidates(payload.cities);
         setQueryLabel(DEFAULT_CITY);
+        setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
 
         if (payload.cities.length === 1) {
           await fetchBoundaries(payload.cities[0]);
@@ -373,6 +373,7 @@ export function BarangayMapExplorer() {
 
     setCityLoading(true);
     setError(null);
+    setWarning(null);
     setData(null);
     setSelectedCity(null);
     setSelectedFeatureId(null);
@@ -387,6 +388,7 @@ export function BarangayMapExplorer() {
 
       setCityCandidates(payload.cities);
       setQueryLabel(nextCity);
+      setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
 
       if (payload.cities.length === 1) {
         void fetchBoundaries(payload.cities[0]);
@@ -410,12 +412,9 @@ export function BarangayMapExplorer() {
       params.set("locationLabel", candidate.locationLabel);
     }
 
-    if (candidate.sourceType !== "firestore") {
-      params.set("relationId", String(candidate.id));
-    }
-
     setLoading(true);
     setError(null);
+    setWarning(null);
     setSelectedCity(candidate);
     setSelectedFeatureId(null);
 
@@ -424,11 +423,16 @@ export function BarangayMapExplorer() {
       const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
 
       if (!response.ok) {
+        if (response.status === 404) {
+          setWarning("Polygons do not exist for this city.");
+          setData(null);
+          return;
+        }
         throw new Error(payload.error ?? payload.details ?? "Request failed.");
       }
 
       setData(payload);
-      setQueryLabel(candidate.sourceType === "firestore" ? `${candidate.name} (Firestore)` : `${candidate.name} (relation ${candidate.id})`);
+      setQueryLabel(candidate.name);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unable to load boundaries.";
       setError(message);
@@ -450,10 +454,6 @@ export function BarangayMapExplorer() {
 
     if (selectedCity.locationLabel) {
       params.set("locationLabel", selectedCity.locationLabel);
-    }
-
-    if (selectedCity.sourceType !== "firestore") {
-      params.set("relationId", String(selectedCity.id));
     }
 
     setExporting(true);
@@ -528,6 +528,7 @@ export function BarangayMapExplorer() {
             <button className="google-button mt-4 w-full rounded-full border border-neutral-200 bg-white px-5 py-3" disabled={!data || exporting} onClick={exportZones} type="button">
               {exporting ? "Exporting..." : "Export Loaded Zones"}
             </button>
+            {warning ? <p className="mt-4 text-sm leading-6 text-amber-700">{warning}</p> : null}
             {error ? <p className="mt-4 text-sm leading-6 text-red-700">{error}</p> : null}
           </section>
 

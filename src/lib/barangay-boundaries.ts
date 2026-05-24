@@ -1,6 +1,5 @@
+import type { BoundaryFeatureCollection } from "@/lib/boundary-types";
 import { queryFirestoreBarangayBoundaries } from "@/lib/firestore-boundaries";
-import { queryHdxBarangayBoundaries } from "@/lib/hdx-boundaries";
-import { queryBarangayBoundaries, queryBarangayBoundariesByRelationId, type BoundaryFeatureCollection } from "@/lib/overpass";
 import { sanitizeIndicativeBarangaysWithPsgc } from "@/lib/psgc-boundary-validation";
 
 type ResolveBarangayBoundariesArgs = {
@@ -18,18 +17,11 @@ export async function resolveBarangayBoundaries({
   country = "Philippines",
   locationLabel,
   province,
-  relationId,
 }: ResolveBarangayBoundariesArgs): Promise<BoundaryFeatureCollection> {
   const firestoreResult = await queryFirestoreBarangayBoundaries({
     city,
     country,
     province: province ?? locationLabel,
-  });
-  const hdxResult = await queryHdxBarangayBoundaries({
-    city,
-    country,
-    locationLabel,
-    province,
   });
 
   if (firestoreResult) {
@@ -40,32 +32,22 @@ export async function resolveBarangayBoundaries({
     });
   }
 
-  if (hdxResult) {
-    return sanitizeIndicativeBarangaysWithPsgc({
-      city,
-      collection: hdxResult,
-      locationLabel: province ?? locationLabel,
-    });
-  }
-
-  if (Number.isFinite(relationId)) {
-    return queryBarangayBoundariesByRelationId({
-      adminLevels,
-      city,
-      country,
-      locationLabel,
-      relationId: relationId!,
-    });
-  }
-
   if (!city) {
     throw new Error('Missing required "city" query parameter.');
   }
 
-  return queryBarangayBoundaries({
-    adminLevels,
-    city,
-    country,
-    province,
-  });
+  return {
+    type: "FeatureCollection",
+    features: [],
+    metadata: {
+      adminLevels: adminLevels ?? ["4"],
+      boundaryMode: "indicative",
+      city,
+      count: 0,
+      country,
+      generatedAt: new Date().toISOString(),
+      province: province ?? locationLabel,
+      source: "Firestore boundary dataset",
+    },
+  };
 }

@@ -9,8 +9,8 @@ This repository is a renderer and importer, not a bundled data repository.
 You are expected to:
 
 1. obtain the boundary data separately
-2. process or export it into GeoJSON
-3. import it into Firebase / Firestore
+2. build the local HDX cache
+3. import that cache into Firebase / Firestore
 4. let the app read the imported dataset
 
 ## Source Trail
@@ -65,9 +65,16 @@ Important name fields:
 
 In the import scripts, these are mapped into normalized app fields so the UI and Firestore layout do not depend on only one exact naming variant.
 
-## How This Project Reads The GeoJSON
+## How This Project Reads The Cache
 
-The import helpers currently read these fields when available:
+The nationwide import path now reads from:
+
+```txt
+data/hdx/cod-ab-phl/manifest.json
+data/hdx/cod-ab-phl/adm4/*.ndjson
+```
+
+The NDJSON feature files currently use these fields when available:
 
 - province
   - `adm2Name`
@@ -111,7 +118,7 @@ If you import to a different dataset id, the app must be pointed at the same id 
 
 ## Firestore Storage Layout
 
-The importer does not store the entire nationwide GeoJSON in one Firestore document.
+The importer does not store the entire nationwide HDX cache in one Firestore document.
 
 Instead it stores:
 
@@ -164,7 +171,7 @@ This is done to keep document sizes manageable.
 
 ## How App Features Are Shaped
 
-During import, each GeoJSON feature is turned into a mapping feature with:
+During import, each cached HDX feature is turned into a mapping feature with:
 
 - `geometry`
 - `properties.name`
@@ -196,7 +203,8 @@ Example shape:
 Standard import:
 
 ```powershell
-npm run import:firebase:hdx -- --input=C:\path\to\philippines-adm4.geojson --dataset=hdx-philippines-adm4
+npm run import:hdx
+npm run import:firebase:hdx -- --dataset=hdx-philippines-adm4
 ```
 
 Dry run:
@@ -207,16 +215,16 @@ npm run import:firebase:hdx:dry-run
 
 ## Common Failure Cases
 
-### Missing GeoJSON File
+### Missing Cache Files
 
 Meaning:
 
-- the importer could not find the local HDX-derived GeoJSON file
+- the importer could not find the local nationwide HDX cache files
 
 Typical fix:
 
-- pass the correct file path with `--input=...`
-- make sure you actually generated or downloaded the GeoJSON first
+- run `npm run import:hdx` first
+- if needed, pass the correct cache path with `--cache-dir=...`
 
 ### Missing Firebase Project Id
 
