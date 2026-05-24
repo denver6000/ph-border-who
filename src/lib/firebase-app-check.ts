@@ -66,8 +66,8 @@ export function initializeFirebaseAppCheck(options: FirebaseAppCheckOptions = {}
   return appCheckInstance;
 }
 
-export async function getFirebaseAppCheckToken() {
-  const appCheck = initializeFirebaseAppCheck();
+export async function getFirebaseAppCheckToken(options: FirebaseAppCheckOptions = {}) {
+  const appCheck = initializeFirebaseAppCheck(options);
 
   if (!appCheck) {
     throw new Error("Firebase App Check is not configured.");

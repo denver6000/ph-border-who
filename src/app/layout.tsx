@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { FirebaseAnalyticsBootstrap } from "@/components/firebase-analytics";
+import "@copilotkit/react-ui/styles.css";
 import "./globals.css";
 
 const geistSans = Geist({

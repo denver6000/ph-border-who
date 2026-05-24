@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: boundaryDatasets
+    // Document ID: dataset id, for example "hdx-philippines-adm4"
+    // Fields:
+    //   - boundaryMode: string, optional, expected "indicative"
+    //   - caveat: string, optional
+    //   - count: number, optional
+    //   - datasetId: string, optional
+    //   - province: string, optional
+    //   - source: string, optional
+    //   - sourceUrl: string, optional
+    //
+    // Subcollection: boundaryDatasets/{datasetId}/cities
+    // Document fields:
+    //   - chunkCount: number, optional
+    //   - cityKey: string, optional
+    //   - cityPcode: string, optional
+    //   - cityName: string, optional
+    //   - normalizedCityName: string, optional
+    //   - province: string, optional
+    //
+    // Subcollection: boundaryDatasets/{datasetId}/cities/{cityId}/chunks
+    // Document fields:
+    //   - features: list, optional
+    //   - featuresEncoding: string, optional
+    //   - featuresJson: string, optional
+    //   - featuresPayload: string, optional
+    //   - index: number, optional
+    //
+    // Client access pattern:
+    //   - get boundaryDatasets/{datasetId}
+    //   - list/query boundaryDatasets/{datasetId}/cities
+    //   - query cities where normalizedCityName == <normalized city>
+    //   - query chunks ordered by index
+    //
+    // Writes are intentionally server-only through Firebase Admin SDK.
+    // Client reads require Firebase Auth. App Check is enforced separately
+    // by Firebase App Check for Firestore.
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /boundaryDatasets/{datasetId} {
+      allow get: if isSignedIn();
+      allow list, create, update, delete: if false;
+
+      match /cities/{cityId} {
+        allow get, list: if isSignedIn();
+        allow create, update, delete: if false;
+
+        match /chunks/{chunkId} {
+          allow get, list: if isSignedIn();
+          allow create, update, delete: if false;
+        }
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

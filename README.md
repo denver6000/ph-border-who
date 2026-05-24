@@ -50,38 +50,95 @@ Examples you will see in the import scripts and data:
 
 In this project, `ADM4` is the important one because that is the barangay boundary level.
 
-## Importing Data Into Firebase
+## Current Data Pipeline
 
-Once you have built the HDX cache locally, you can import the entire Philippines dataset into Firestore with the dedicated HDX importer:
+The import flow is now a two-step process:
+
+1. build a local HDX cache
+2. import that cache into Firestore
+
+### 1. Build The Local HDX Cache
 
 ```powershell
-npm run import:firebase:hdx
+npm run import:hdx
 ```
 
-That command now reads from:
+This script:
+
+- downloads the Philippines ADM4 shapefile ZIP from HDX
+- extracts it into `.cache/hdx/`
+- converts the ADM4 features into a local cache under `data/hdx/cod-ab-phl/`
+
+The generated cache currently looks like:
 
 ```txt
 data/hdx/cod-ab-phl/manifest.json
 data/hdx/cod-ab-phl/adm4/*.ndjson
 ```
 
-and imports all available Philippine cities / municipalities in the cache.
-
-Useful flags:
+Useful options:
 
 ```powershell
-npm run import:hdx
-npm run import:firebase:hdx -- --dataset=hdx-philippines-adm4
-npm run import:firebase:hdx -- --cache-dir=path\to\cod-ab-phl
-npm run import:firebase:hdx -- --dry-run
+npm run import:hdx -- --simplify=0.0001
+npm run import:hdx -- --force-download
+npm run import:hdx -- --force-extract
 ```
 
-The importer fragments the nationwide cache into compressed Firestore chunk documents so the mapping system can read the dataset without storing a huge geometry blob in a single document.
+### 2. Import The Cache Into Firestore
+
+Use the dedicated HDX-to-Firebase importer after the local cache exists:
+
+```powershell
+npm run import:firebase:hdx
+```
+
+This command reads the generated cache from `data/hdx/cod-ab-phl/` by default and writes it into Firestore as chunked city documents.
+
+Useful options:
+
+```powershell
+npm run import:firebase:hdx:dry-run
+npm run import:firebase:hdx -- --dataset=hdx-philippines-adm4
+npm run import:firebase:hdx -- --cache-dir=path\to\cod-ab-phl
+```
+
+There is also a more generic importer that reads the same cache format but lets you override source metadata:
+
+```powershell
+npm run import:firestore-boundaries
+npm run import:firestore-boundaries:dry-run
+npm run import:firestore-boundaries -- --source="Custom source"
+npm run import:firestore-boundaries -- --source-url=https://example.com/dataset
+```
+
+Both Firestore importers fragment the nationwide cache into compressed chunk documents so the app can serve the dataset without storing one huge geometry blob in a single document.
 
 For a nationwide deployment, keep the dataset id aligned with:
 
 ```env
 FIRESTORE_BOUNDARY_DATASET_ID=hdx-philippines-adm4
+```
+
+## Exporting Data From Firestore
+
+You can export the currently imported Firestore dataset back to a GeoJSON file with:
+
+```powershell
+npm run export:firestore-boundaries
+```
+
+By default this writes to:
+
+```txt
+public/boundaries/firestore-hdx-philippines-adm4.geojson
+```
+
+Useful options:
+
+```powershell
+npm run export:firestore-boundaries -- --dataset=hdx-philippines-adm4
+npm run export:firestore-boundaries -- --output=public/boundaries/my-export.geojson
+npm run export:firestore-boundaries -- --city="San Jose City"
 ```
 
 ## Data Docs
@@ -100,12 +157,14 @@ That document explains:
 
 ## Required Environment
 
-For local imports, provide Firebase credentials through environment variables such as:
+For local imports and exports, provide Firebase credentials through environment variables such as:
 
 ```env
 FIREBASE_PROJECT_ID=bounds-finder
 FIREBASE_SERVICE_ACCOUNT_PATH=C:\path\to\service-account.json
 ```
+
+The scripts load `.env.local` and `.env` automatically if present. They can also use `GOOGLE_APPLICATION_CREDENTIALS` or `FIREBASE_SERVICE_ACCOUNT_KEY` when available.
 
 The web app itself reads its public Firebase and Google Maps configuration from `.env`.
 

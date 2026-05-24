@@ -1,4 +1,5 @@
 import { AppTopBar } from "@/components/app-top-bar";
+import { CopilotKitShell } from "@/components/copilotkit-shell";
 import { FirebaseAppCheckBootstrap } from "@/components/firebase-app-check";
 
 export default function ProtectedLayout({
@@ -11,8 +12,10 @@ export default function ProtectedLayout({
   return (
     <>
       <FirebaseAppCheckBootstrap debugToken={appCheckDebugToken} />
-      <AppTopBar />
-      <main className="app-main">{children}</main>
+      <CopilotKitShell appCheckDebugToken={appCheckDebugToken}>
+        <AppTopBar />
+        <main className="app-main">{children}</main>
+      </CopilotKitShell>
     </>
   );
 }

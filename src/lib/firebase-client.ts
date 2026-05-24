@@ -1,5 +1,7 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import type { Analytics } from "firebase/analytics";
+import { getAuth, signInAnonymously, type Auth, type User } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -28,6 +30,41 @@ export function getFirebaseApp(): FirebaseApp | null {
   }
 
   return getApps().length ? getApp() : initializeApp(firebaseConfig);
+}
+
+export function getFirebaseFirestoreClient(): Firestore | null {
+  const app = getFirebaseApp();
+
+  if (!app) {
+    return null;
+  }
+
+  return getFirestore(app);
+}
+
+export function getFirebaseAuthClient(): Auth | null {
+  const app = getFirebaseApp();
+
+  if (!app) {
+    return null;
+  }
+
+  return getAuth(app);
+}
+
+export async function ensureAnonymousFirebaseUser(): Promise<User> {
+  const auth = getFirebaseAuthClient();
+
+  if (!auth) {
+    throw new Error("Firebase Auth is not configured.");
+  }
+
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+
+  const credential = await signInAnonymously(auth);
+  return credential.user;
 }
 
 export async function getFirebaseAnalyticsClient(): Promise<Analytics | null> {

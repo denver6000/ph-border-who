@@ -1,6 +1,60 @@
 {
   "version": 1,
   "skills": {
+    "copilotkit": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "5e723e4da7ab556b251ff6caf174192633ca989947dabbc222b70c3f7b4c44e6"
+    },
+    "copilotkit-agui": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-agui/SKILL.md",
+      "computedHash": "bd583e5bd9f0f137268e09f9b40d4b8a42a91793e5f52814031766e4646c0ed5"
+    },
+    "copilotkit-contribute": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-contribute/SKILL.md",
+      "computedHash": "5e2c3442fdbcacde6480f41a32716b567e388cd7f2d0c97f05eb6a3119fb09ac"
+    },
+    "copilotkit-debug": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-debug/SKILL.md",
+      "computedHash": "6e0d823b48fbaa17120c03ae485624d67bcc961f840a2ec9e54e86f1e9e421c2"
+    },
+    "copilotkit-develop": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-develop/SKILL.md",
+      "computedHash": "50f7ccf7d5f8157c2fa0611365e743d0a79a88007cff519d2ebf48334b707e75"
+    },
+    "copilotkit-integrations": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-integrations/SKILL.md",
+      "computedHash": "22556e8f09a893d9eb372a643e14cd79a536a8b988f0a7d100ce92964499453e"
+    },
+    "copilotkit-self-update": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-self-update/SKILL.md",
+      "computedHash": "8b7e2682346f0f97b5811d9b0dd24c93344571470142eadaf7d8a10c33c0d3aa"
+    },
+    "copilotkit-setup": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-setup/SKILL.md",
+      "computedHash": "e984ad6da1b8edab5ba75869fac9dc44422491ef6504cae593eee97e7f56eb21"
+    },
+    "copilotkit-upgrade": {
+      "source": "copilotkit/skills",
+      "sourceType": "github",
+      "skillPath": "skills/copilotkit-upgrade/SKILL.md",
+      "computedHash": "eca1e04d7b16b8cc292cb862d0cd60afbbb45205a95e30a752170c2a507cb8f3"
+    },
     "developing-genkit-dart": {
       "source": "firebase/agent-skills",
       "sourceType": "github",
@@ -84,6 +138,12 @@
       "sourceType": "github",
       "skillPath": "skills/firebase-security-rules-auditor/SKILL.md",
       "computedHash": "42e793406ca8980c47fcdbd309f02838316849bcbf8475001b4ecaa6a67606b8"
+    },
+    "mastra": {
+      "source": "mastra-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/mastra/SKILL.md",
+      "computedHash": "517cfc6261f08fcd16c8f0ee64bf7a5b70d0d69acb723cbec4179678b0462f18"
     },
     "xcode-project-setup": {
       "source": "firebase/agent-skills",

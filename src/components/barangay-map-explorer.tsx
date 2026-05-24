@@ -3,6 +3,10 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { fetchWithAppCheck } from "@/lib/app-check-fetch";
+import {
+  queryClientFirestoreCities,
+  resolveClientFirestoreBarangayBoundaries,
+} from "@/lib/firestore-boundaries-client";
 
 type BoundaryFeature = {
   type: "Feature";
@@ -70,17 +74,6 @@ type CityCandidate = {
   name: string;
   ref?: string;
   sourceType?: "firestore";
-};
-
-type CitySearchResponse = {
-  cities: CityCandidate[];
-  metadata: {
-    city: string;
-    country: string;
-    count: number;
-    generatedAt: string;
-    source?: "firestore" | "overpass";
-  };
 };
 
 type OverlayEntry = {
@@ -249,22 +242,16 @@ export function BarangayMapExplorer() {
       setCityLoading(true);
 
       try {
-        const params = new URLSearchParams({
+        const cities = await queryClientFirestoreCities({
           city: DEFAULT_CITY,
         });
-        const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
-        const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
 
-        if (!response.ok) {
-          throw new Error(payload.error ?? payload.details ?? "Request failed.");
-        }
-
-        setCityCandidates(payload.cities);
+        setCityCandidates(cities);
         setQueryLabel(DEFAULT_CITY);
-        setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
+        setWarning(cities.length ? null : "Polygons do not exist for this city.");
 
-        if (payload.cities.length === 1) {
-          await fetchBoundaries(payload.cities[0]);
+        if (cities.length === 1) {
+          await fetchBoundaries(cities[0]);
         }
       } catch (caughtError) {
         const message = caughtError instanceof Error ? caughtError.message : "Unable to search cities.";
@@ -369,10 +356,6 @@ export function BarangayMapExplorer() {
   }, [selectedFeatureId]);
 
   async function searchCities(nextCity: string) {
-    const params = new URLSearchParams({
-      city: nextCity,
-    });
-
     setCityLoading(true);
     setError(null);
     setWarning(null);
@@ -381,19 +364,16 @@ export function BarangayMapExplorer() {
     setSelectedFeatureId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
-      const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
+      const cities = await queryClientFirestoreCities({
+        city: nextCity,
+      });
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? payload.details ?? "Request failed.");
-      }
-
-      setCityCandidates(payload.cities);
+      setCityCandidates(cities);
       setQueryLabel(nextCity);
-      setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
+      setWarning(cities.length ? null : "Polygons do not exist for this city.");
 
-      if (payload.cities.length === 1) {
-        void fetchBoundaries(payload.cities[0]);
+      if (cities.length === 1) {
+        void fetchBoundaries(cities[0]);
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unable to search cities.";
@@ -406,14 +386,6 @@ export function BarangayMapExplorer() {
   }
 
   async function fetchBoundaries(candidate: CityCandidate) {
-    const params = new URLSearchParams({
-      city: candidate.name,
-    });
-
-    if (candidate.locationLabel) {
-      params.set("locationLabel", candidate.locationLabel);
-    }
-
     setLoading(true);
     setError(null);
     setWarning(null);
@@ -421,16 +393,15 @@ export function BarangayMapExplorer() {
     setSelectedFeatureId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/barangays?${params.toString()}`);
-      const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
+      const payload = await resolveClientFirestoreBarangayBoundaries({
+        city: candidate.name,
+        province: candidate.locationLabel,
+      });
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          setWarning("Polygons do not exist for this city.");
-          setData(null);
-          return;
-        }
-        throw new Error(payload.error ?? payload.details ?? "Request failed.");
+      if (!payload.features.length) {
+        setWarning("Polygons do not exist for this city.");
+        setData(null);
+        return;
       }
 
       setData(payload);

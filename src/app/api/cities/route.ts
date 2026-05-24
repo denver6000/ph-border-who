@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
   try {
     await verifyAppCheckRequest(request);
 
-    const firestoreCities = await queryFirestoreCities({
     const cities = await queryFirestoreCities({
       city,
     });
