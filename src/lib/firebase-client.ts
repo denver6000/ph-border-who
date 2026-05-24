@@ -1,6 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import type { Analytics } from "firebase/analytics";
-import { getAuth, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -29,20 +28,6 @@ export function getFirebaseApp(): FirebaseApp | null {
   }
 
   return getApps().length ? getApp() : initializeApp(firebaseConfig);
-}
-
-export function getFirebaseAuthClient(): Auth | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const app = getFirebaseApp();
-
-  if (!app) {
-    return null;
-  }
-
-  return getAuth(app);
 }
 
 export async function getFirebaseAnalyticsClient(): Promise<Analytics | null> {
