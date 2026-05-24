@@ -19,6 +19,13 @@ export class ImportScriptError extends Error {
   }
 }
 
+export function makeBatchOperation(description, apply) {
+  return {
+    apply,
+    description,
+  };
+}
+
 export function parseArgs(argv) {
   const parsed = new Map();
 
@@ -253,19 +260,79 @@ export function toMappingFeature(feature, fallbackId = 0) {
 export async function commitBatch(db, operations) {
   let batch = db.batch();
   let operationCount = 0;
+  let batchNumber = 1;
+  let totalCommitted = 0;
+  let batchDescriptions = [];
 
   for (const operation of operations) {
-    operation(batch);
+    const apply = typeof operation === "function" ? operation : operation.apply;
+    const description =
+      typeof operation === "function" ? operation.description ?? "unnamed operation" : operation.description;
+
+    apply(batch);
     operationCount += 1;
+    batchDescriptions.push(description);
 
     if (operationCount === 450) {
-      await batch.commit();
+      console.log(
+        `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
+      );
+
+      try {
+        await batch.commit();
+      } catch (error) {
+        throw new ImportScriptError(`Firestore batch ${batchNumber} failed during commit.`, {
+          details: [
+            `Writes in failed batch: ${operationCount}`,
+            `Total writes committed before failure: ${totalCommitted}`,
+            `First operation: ${batchDescriptions[0] ?? "n/a"}`,
+            `Last operation: ${batchDescriptions[batchDescriptions.length - 1] ?? "n/a"}`,
+          ],
+          solutions: [
+            "Re-run the import and note which batch fails consistently.",
+            "Check Firestore quotas, document size limits, and write throughput for the target project.",
+            "If this keeps failing at the same city, inspect that city's chunk payload size and feature count.",
+          ],
+          cause: error,
+        });
+      }
+
+      totalCommitted += operationCount;
+      console.log(`[HDX Import] Batch ${batchNumber} committed successfully.`);
       batch = db.batch();
       operationCount = 0;
+      batchDescriptions = [];
+      batchNumber += 1;
     }
   }
 
   if (operationCount > 0) {
-    await batch.commit();
+    console.log(
+      `[HDX Import] Committing Firestore batch ${batchNumber} (${operationCount} writes, total queued: ${(totalCommitted + operationCount).toLocaleString()})`,
+    );
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      throw new ImportScriptError(`Firestore batch ${batchNumber} failed during commit.`, {
+        details: [
+          `Writes in failed batch: ${operationCount}`,
+          `Total writes committed before failure: ${totalCommitted}`,
+          `First operation: ${batchDescriptions[0] ?? "n/a"}`,
+          `Last operation: ${batchDescriptions[batchDescriptions.length - 1] ?? "n/a"}`,
+        ],
+        solutions: [
+          "Re-run the import and note which batch fails consistently.",
+          "Check Firestore quotas, document size limits, and write throughput for the target project.",
+          "If this keeps failing at the same city, inspect that city's chunk payload size and feature count.",
+        ],
+        cause: error,
+      });
+    }
+
+    totalCommitted += operationCount;
+    console.log(`[HDX Import] Batch ${batchNumber} committed successfully.`);
   }
+
+  console.log(`[HDX Import] Finished committing ${totalCommitted.toLocaleString()} Firestore writes.`);
 }

@@ -11,6 +11,7 @@ import {
   getCityName,
   getCityPcode,
   getProvinceName,
+  makeBatchOperation,
   normalizeName,
   slugify,
   toMappingFeature,
@@ -374,7 +375,7 @@ export async function importBoundaryCacheToFirestore({
   console.log(`Preparing nationwide HDX cache import from ${cacheDir}`);
   console.log(`Dataset: ${datasetId}`);
 
-  for (const manifestCity of manifest.cities) {
+  for (const [cityIndex, manifestCity] of manifest.cities.entries()) {
     const filePath = path.join(cacheDir, manifestCity.file);
     const rawFeatures = await readNdjsonFeatures(filePath);
     const features = rawFeatures.map((feature, index) => toMappingFeature(feature, index + 1));
@@ -397,6 +398,12 @@ export async function importBoundaryCacheToFirestore({
 
     featureCount += features.length;
     totalChunks += chunks.length;
+
+    if ((cityIndex + 1) % 100 === 0 || cityIndex === manifest.cities.length - 1) {
+      console.log(
+        `[HDX Import] Prepared ${String(cityIndex + 1).padStart(4, " ")} / ${manifest.cities.length.toLocaleString()} cities (${featureCount.toLocaleString()} features, ${totalChunks.toLocaleString()} chunks)`,
+      );
+    }
   }
 
   console.log(
@@ -425,7 +432,7 @@ export async function importBoundaryCacheToFirestore({
   const db = getAdminDb();
   const datasetRef = db.collection(DATASET_COLLECTION).doc(datasetId);
   const operations = [
-    (batch) =>
+    makeBatchOperation(`dataset metadata -> ${datasetRef.path}`, (batch) =>
       batch.set(datasetRef, {
         boundaryMode: "indicative",
         caveat: manifest.dataset?.caveat ?? "Indicative boundaries only; not official legal boundary data.",
@@ -441,37 +448,49 @@ export async function importBoundaryCacheToFirestore({
           totalChunks,
         },
       }),
+    ),
   ];
 
-  for (const city of cities) {
+  for (const [cityIndex, city] of cities.entries()) {
     const cityRef = datasetRef.collection("cities").doc(city.cityKey);
 
-    operations.push((batch) =>
-      batch.set(cityRef, {
-        cityKey: city.cityKey,
-        cityName: city.cityName,
-        cityPcode: city.cityPcode,
-        chunkCount: city.chunkCount,
-        featureCount: city.featureCount,
-        normalizedCityName: city.normalizedCityName,
-        province: city.province,
-      }),
+    operations.push(
+      makeBatchOperation(`city metadata -> ${city.cityName} (${cityRef.path})`, (batch) =>
+        batch.set(cityRef, {
+          cityKey: city.cityKey,
+          cityName: city.cityName,
+          cityPcode: city.cityPcode,
+          chunkCount: city.chunkCount,
+          featureCount: city.featureCount,
+          normalizedCityName: city.normalizedCityName,
+          province: city.province,
+        }),
+      ),
     );
 
     city.chunks.forEach((chunk, index) => {
       const featuresPayload = encodeFeatures(chunk);
       const chunkRef = cityRef.collection("chunks").doc(String(index).padStart(4, "0"));
-      operations.push((batch) =>
-        batch.set(chunkRef, {
+      operations.push(
+        makeBatchOperation(`chunk ${index + 1}/${city.chunkCount} -> ${city.cityName} (${chunkRef.path})`, (batch) =>
+          batch.set(chunkRef, {
           byteLength: Buffer.byteLength(featuresPayload, "utf8"),
           featuresEncoding: "gzip-base64",
           featuresPayload,
           index,
-        }),
+          }),
+        ),
       );
     });
+
+    if ((cityIndex + 1) % 100 === 0 || cityIndex === cities.length - 1) {
+      console.log(
+        `[HDX Import] Queued Firestore writes for ${String(cityIndex + 1).padStart(4, " ")} / ${cities.length.toLocaleString()} cities`,
+      );
+    }
   }
 
+  console.log(`[HDX Import] Total Firestore write operations queued: ${operations.length.toLocaleString()}`);
   await commitBatch(db, operations);
   console.log(`Imported ${featureCount.toLocaleString()} features into Firestore dataset ${datasetId}.`);
 
