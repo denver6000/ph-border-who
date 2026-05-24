@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
 import { queryFirestoreCities } from "@/lib/firestore-boundaries";
 import { searchCityBoundaries } from "@/lib/overpass";
 
@@ -20,6 +21,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await verifyAppCheckRequest(request);
+
     const firestoreCities = await queryFirestoreCities({
       city,
     });
@@ -57,6 +60,16 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof AppCheckVerificationError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          details: error.details,
+        },
+        { status: error.status },
+      );
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
 
     return NextResponse.json(
