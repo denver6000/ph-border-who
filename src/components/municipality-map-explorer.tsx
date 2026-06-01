@@ -8,17 +8,17 @@ import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-
 
 type BoundaryFeature = BoundaryFeatureCollection["features"][number];
 type BoundaryResponse = BoundaryFeatureCollection;
-type CityCandidate = CityBoundaryCandidate;
+type LocalityCandidate = CityBoundaryCandidate;
 
-type CitySearchResponse = {
-  cities: CityCandidate[];
+type ProvinceLocalitiesResponse = {
   metadata: {
-    city: string;
-    country: string;
     count: number;
+    country: string;
     generatedAt: string;
-    source?: "firestore" | "overpass";
+    province: string;
+    source?: "firestore";
   };
+  municipalities: LocalityCandidate[];
 };
 
 type OverlayEntry = {
@@ -30,16 +30,17 @@ type OverlayEntry = {
 
 type ExportFormat = "json" | "sql";
 
-type CityColor = {
+type LocalityColor = {
   fillColor: string;
   pillBackground: string;
   pillBorder: string;
   strokeColor: string;
 };
 
-const DEFAULT_CITY = "San Jose City";
+const DEFAULT_PROVINCE = "Nueva Ecija";
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-const CITY_COLOR_PALETTE: CityColor[] = [
+const BULK_SELECTION_CONCURRENCY = 6;
+const LOCALITY_COLOR_PALETTE: LocalityColor[] = [
   { fillColor: "#ef4444", pillBackground: "#fef2f2", pillBorder: "#fecaca", strokeColor: "#dc2626" },
   { fillColor: "#f97316", pillBackground: "#fff7ed", pillBorder: "#fed7aa", strokeColor: "#ea580c" },
   { fillColor: "#eab308", pillBackground: "#fefce8", pillBorder: "#fde68a", strokeColor: "#ca8a04" },
@@ -102,19 +103,19 @@ function getFeatureGeometrySets(feature: BoundaryFeature) {
   return feature.geometry.coordinates as number[][][][];
 }
 
-function getCityCandidateKey(candidate: CityCandidate) {
+function getLocalityCandidateKey(candidate: LocalityCandidate) {
   return `${candidate.id}:${candidate.locationLabel ?? ""}:${candidate.name}`;
 }
 
-function buildPolygonStyle(color: CityColor, isActiveCity: boolean, isActiveFeature: boolean): google.maps.PolygonOptions {
+function buildPolygonStyle(color: LocalityColor, isActiveLocality: boolean, isActiveFeature: boolean): google.maps.PolygonOptions {
   return {
     clickable: true,
     fillColor: color.fillColor,
-    fillOpacity: isActiveFeature ? 0.34 : isActiveCity ? 0.24 : 0.12,
+    fillOpacity: isActiveFeature ? 0.34 : isActiveLocality ? 0.24 : 0.12,
     strokeColor: color.strokeColor,
     strokeOpacity: 0.95,
-    strokeWeight: isActiveFeature ? 3 : isActiveCity ? 2.5 : 2,
-    zIndex: isActiveFeature ? 30 : isActiveCity ? 20 : 10,
+    strokeWeight: isActiveFeature ? 3 : isActiveLocality ? 2.5 : 2,
+    zIndex: isActiveFeature ? 30 : isActiveLocality ? 20 : 10,
   };
 }
 
@@ -129,55 +130,138 @@ function readDownloadFilename(response: Response) {
   return match?.[1] ?? null;
 }
 
-export function CityMapExplorer() {
+function normalizeClientText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function localityTypeLabel(candidate: LocalityCandidate) {
+  if (candidate.localityType === "city") {
+    return "City";
+  }
+
+  if (candidate.localityType === "municipality") {
+    return "Municipality";
+  }
+
+  return "Locality";
+}
+
+function localitySortScore(candidate: LocalityCandidate, filterQuery: string) {
+  const normalizedQuery = normalizeClientText(filterQuery);
+
+  if (!normalizedQuery) {
+    return 0;
+  }
+
+  const normalizedName = normalizeClientText(candidate.name);
+
+  if (normalizedName === normalizedQuery) {
+    return 0;
+  }
+
+  if (normalizedName.startsWith(normalizedQuery)) {
+    return 1;
+  }
+
+  if (normalizedName.includes(normalizedQuery)) {
+    return 2;
+  }
+
+  return 3;
+}
+
+type FetchBoundaryOptions = {
+  reportErrors?: boolean;
+  selectCandidate?: boolean;
+  setLoadingState?: boolean;
+};
+
+export function MunicipalityMapExplorer() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const overlayEntriesRef = useRef<OverlayEntry[]>([]);
   const boundaryCacheRef = useRef<Record<string, BoundaryResponse>>({});
-  const cityColorsRef = useRef<Record<string, CityColor>>({});
+  const localityColorsRef = useRef<Record<string, LocalityColor>>({});
 
-  const [city, setCity] = useState(DEFAULT_CITY);
-  const [queryLabel, setQueryLabel] = useState(DEFAULT_CITY);
-  const [cityCandidates, setCityCandidates] = useState<CityCandidate[]>([]);
-  const [trackedCities, setTrackedCities] = useState<CityCandidate[]>([]);
-  const [selectedCity, setSelectedCity] = useState<CityCandidate | null>(null);
+  const [provinceInput, setProvinceInput] = useState(DEFAULT_PROVINCE);
+  const [loadedProvinceLabel, setLoadedProvinceLabel] = useState(DEFAULT_PROVINCE);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [localityCandidates, setLocalityCandidates] = useState<LocalityCandidate[]>([]);
+  const [trackedLocalities, setTrackedLocalities] = useState<LocalityCandidate[]>([]);
+  const [selectedLocality, setSelectedLocality] = useState<LocalityCandidate | null>(null);
   const [boundaryCache, setBoundaryCache] = useState<Record<string, BoundaryResponse>>({});
-  const [cityColors, setCityColors] = useState<Record<string, CityColor>>({});
-  const [cityLoading, setCityLoading] = useState(false);
+  const [localityColors, setLocalityColors] = useState<Record<string, LocalityColor>>({});
+  const [provinceLoading, setProvinceLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [bulkSelecting, setBulkSelecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
   const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mapError, setMapError] = useState<string | null>(null);
   const missingKey = !GOOGLE_MAPS_API_KEY;
-  const selectedCityKey = selectedCity ? getCityCandidateKey(selectedCity) : null;
-  const data = selectedCityKey ? boundaryCache[selectedCityKey] ?? null : null;
+  const selectedLocalityKey = selectedLocality ? getLocalityCandidateKey(selectedLocality) : null;
+  const data = selectedLocalityKey ? boundaryCache[selectedLocalityKey] ?? null : null;
+
+  const filteredLocalityCandidates = useMemo(() => {
+    const normalizedFilter = normalizeClientText(filterQuery);
+
+    return localityCandidates
+      .filter((candidate) => {
+        if (!normalizedFilter) {
+          return true;
+        }
+
+        return normalizeClientText(candidate.name).includes(normalizedFilter);
+      })
+      .sort((left, right) => {
+        const scoreDelta = localitySortScore(left, filterQuery) - localitySortScore(right, filterQuery);
+
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+
+        if (left.localityType === "municipality" && right.localityType === "city") {
+          return -1;
+        }
+
+        if (left.localityType === "city" && right.localityType === "municipality") {
+          return 1;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+  }, [filterQuery, localityCandidates]);
 
   const displayedBoundaries = useMemo(() => {
     const seen = new Set<string>();
-    const entries: Array<{ candidate: CityCandidate; cityKey: string; data: BoundaryResponse }> = [];
+    const entries: Array<{ candidate: LocalityCandidate; cityKey: string; data: BoundaryResponse }> = [];
 
-    trackedCities.forEach((candidate) => {
-      const cityKey = getCityCandidateKey(candidate);
-      const cityData = boundaryCache[cityKey];
+    trackedLocalities.forEach((candidate) => {
+      const cityKey = getLocalityCandidateKey(candidate);
+      const localityData = boundaryCache[cityKey];
 
-      if (!cityData || seen.has(cityKey)) {
+      if (!localityData || seen.has(cityKey)) {
         return;
       }
 
       seen.add(cityKey);
-      entries.push({ candidate, cityKey, data: cityData });
+      entries.push({ candidate, cityKey, data: localityData });
     });
 
-    if (selectedCity && selectedCityKey && data && !seen.has(selectedCityKey)) {
-      entries.push({ candidate: selectedCity, cityKey: selectedCityKey, data });
+    if (selectedLocality && selectedLocalityKey && data && !seen.has(selectedLocalityKey)) {
+      entries.push({ candidate: selectedLocality, cityKey: selectedLocalityKey, data });
     }
 
     return entries;
-  }, [boundaryCache, data, selectedCity, selectedCityKey, trackedCities]);
+  }, [boundaryCache, data, selectedLocality, selectedLocalityKey, trackedLocalities]);
 
   const resolvedDisplayedBoundaries = useMemo(() => {
     const resolvedCollections = resolveNonOverlappingBoundaryCollections(displayedBoundaries.map((entry) => entry.data));
@@ -189,41 +273,50 @@ export function CityMapExplorer() {
       }))
       .filter((entry) => entry.data.features.length)
       .sort((left, right) => {
-        if (left.cityKey === selectedCityKey && right.cityKey !== selectedCityKey) {
+        if (left.cityKey === selectedLocalityKey && right.cityKey !== selectedLocalityKey) {
           return 1;
         }
 
-        if (right.cityKey === selectedCityKey && left.cityKey !== selectedCityKey) {
+        if (right.cityKey === selectedLocalityKey && left.cityKey !== selectedLocalityKey) {
           return -1;
         }
 
         return 0;
       });
-  }, [displayedBoundaries, selectedCityKey]);
+  }, [displayedBoundaries, selectedLocalityKey]);
 
   const exportCandidates = useMemo(() => resolvedDisplayedBoundaries.map((entry) => entry.candidate), [resolvedDisplayedBoundaries]);
+  const visibleLocalityKeys = useMemo(
+    () => new Set(filteredLocalityCandidates.map((candidate) => getLocalityCandidateKey(candidate))),
+    [filteredLocalityCandidates],
+  );
+  const allVisibleSelected =
+    filteredLocalityCandidates.length > 0 &&
+    filteredLocalityCandidates.every((candidate) =>
+      trackedLocalities.some((entry) => getLocalityCandidateKey(entry) === getLocalityCandidateKey(candidate)),
+    );
 
   useEffect(() => {
     boundaryCacheRef.current = boundaryCache;
   }, [boundaryCache]);
 
   useEffect(() => {
-    cityColorsRef.current = cityColors;
-  }, [cityColors]);
+    localityColorsRef.current = localityColors;
+  }, [localityColors]);
 
-  const ensureCityColor = useCallback((cityKey: string) => {
-    const existingColor = cityColorsRef.current[cityKey];
+  const ensureLocalityColor = useCallback((cityKey: string) => {
+    const existingColor = localityColorsRef.current[cityKey];
 
     if (existingColor) {
       return existingColor;
     }
 
-    const usedFillColors = new Set(Object.values(cityColorsRef.current).map((entry) => entry.fillColor));
-    const availableColors = CITY_COLOR_PALETTE.filter((entry) => !usedFillColors.has(entry.fillColor));
-    const colorPool = availableColors.length ? availableColors : CITY_COLOR_PALETTE;
+    const usedFillColors = new Set(Object.values(localityColorsRef.current).map((entry) => entry.fillColor));
+    const availableColors = LOCALITY_COLOR_PALETTE.filter((entry) => !usedFillColors.has(entry.fillColor));
+    const colorPool = availableColors.length ? availableColors : LOCALITY_COLOR_PALETTE;
     const nextColor = colorPool[Math.floor(Math.random() * colorPool.length)];
 
-    setCityColors((current) => {
+    setLocalityColors((current) => {
       if (current[cityKey]) {
         return current;
       }
@@ -232,7 +325,7 @@ export function CityMapExplorer() {
         ...current,
         [cityKey]: nextColor,
       };
-      cityColorsRef.current = nextAssignments;
+      localityColorsRef.current = nextAssignments;
       return nextAssignments;
     });
 
@@ -303,29 +396,42 @@ export function CityMapExplorer() {
     };
   }, []);
 
-  const fetchBoundary = useCallback(async (candidate: CityCandidate) => {
-    const candidateKey = getCityCandidateKey(candidate);
+  const fetchBoundary = useCallback(async (candidate: LocalityCandidate, options: FetchBoundaryOptions = {}) => {
+    const {
+      reportErrors = true,
+      selectCandidate = true,
+      setLoadingState = true,
+    } = options;
+    const candidateKey = getLocalityCandidateKey(candidate);
     const params = new URLSearchParams({ city: candidate.name });
 
     if (candidate.locationLabel) {
       params.set("locationLabel", candidate.locationLabel);
     }
 
-    setError(null);
-    setWarning(null);
-    setSelectedCity(candidate);
-    setSelectedFeatureId(null);
+    if (reportErrors) {
+      setError(null);
+      setWarning(null);
+    }
+
+    if (selectCandidate) {
+      setSelectedLocality(candidate);
+      setSelectedFeatureId(null);
+    }
 
     const cachedBoundary = boundaryCacheRef.current[candidateKey];
-    ensureCityColor(candidateKey);
+    ensureLocalityColor(candidateKey);
 
     if (cachedBoundary) {
-      setQueryLabel(candidate.name);
-      setSelectedFeatureId(cachedBoundary.features[0]?.properties.id ?? null);
+      if (selectCandidate) {
+        setSelectedFeatureId(cachedBoundary.features[0]?.properties.id ?? null);
+      }
       return cachedBoundary;
     }
 
-    setLoading(true);
+    if (setLoadingState) {
+      setLoading(true);
+    }
 
     try {
       const response = await fetchWithAppCheck(`/api/cities/boundary?${params.toString()}`);
@@ -333,9 +439,12 @@ export function CityMapExplorer() {
 
       if (!response.ok) {
         if (response.status === 404) {
-          setWarning("Polygons do not exist for this city.");
+          if (reportErrors) {
+            setWarning("Polygons do not exist for this locality.");
+          }
           return null;
         }
+
         throw new Error(payload.error ?? payload.details ?? "Request failed.");
       }
 
@@ -347,49 +456,50 @@ export function CityMapExplorer() {
         boundaryCacheRef.current = nextCache;
         return nextCache;
       });
-      setSelectedFeatureId(payload.features[0]?.properties.id ?? null);
-      setQueryLabel(candidate.name);
+      if (selectCandidate) {
+        setSelectedFeatureId(payload.features[0]?.properties.id ?? null);
+      }
       return payload;
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to load city boundary.";
-      setError(message);
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to load locality boundary.";
+      if (reportErrors) {
+        setError(message);
+      }
       return null;
     } finally {
-      setLoading(false);
+      if (setLoadingState) {
+        setLoading(false);
+      }
     }
-  }, [ensureCityColor]);
+  }, [ensureLocalityColor]);
 
   useEffect(() => {
-    async function loadInitialCity() {
-      setCityLoading(true);
+    async function loadInitialProvince() {
+      setProvinceLoading(true);
 
       try {
-        const params = new URLSearchParams({ city: DEFAULT_CITY });
-        const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
-        const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
+        const params = new URLSearchParams({ province: DEFAULT_PROVINCE });
+        const response = await fetchWithAppCheck(`/api/municipalities?${params.toString()}`);
+        const payload = (await response.json()) as ProvinceLocalitiesResponse & { details?: string; error?: string };
 
         if (!response.ok) {
           throw new Error(payload.error ?? payload.details ?? "Request failed.");
         }
 
-        setCityCandidates(payload.cities);
-        setQueryLabel(DEFAULT_CITY);
-        setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
-
-        if (payload.cities.length === 1) {
-          await fetchBoundary(payload.cities[0]);
-        }
+        setLocalityCandidates(payload.municipalities);
+        setLoadedProvinceLabel(payload.metadata.province);
+        setWarning(payload.municipalities.length ? null : "No localities were found for this province.");
       } catch (caughtError) {
-        const message = caughtError instanceof Error ? caughtError.message : "Unable to search cities.";
+        const message = caughtError instanceof Error ? caughtError.message : "Unable to load province localities.";
         setError(message);
-        setCityCandidates([]);
+        setLocalityCandidates([]);
       } finally {
-        setCityLoading(false);
+        setProvinceLoading(false);
       }
     }
 
-    void loadInitialCity();
-  }, [fetchBoundary]);
+    void loadInitialProvince();
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -411,11 +521,11 @@ export function CityMapExplorer() {
 
     const overallBounds = new google.maps.LatLngBounds();
 
-    resolvedDisplayedBoundaries.forEach(({ candidate, cityKey, data: cityData }) => {
-      const isActiveCity = cityKey === selectedCityKey;
-      const cityColor = cityColors[cityKey] ?? ensureCityColor(cityKey);
+    resolvedDisplayedBoundaries.forEach(({ candidate, cityKey, data: localityData }) => {
+      const isActiveLocality = cityKey === selectedLocalityKey;
+      const localityColor = localityColors[cityKey] ?? ensureLocalityColor(cityKey);
 
-      cityData.features.forEach((feature) => {
+      localityData.features.forEach((feature) => {
         const geometrySets = getFeatureGeometrySets(feature);
 
         geometrySets.forEach((polygonCoordinateSet) => {
@@ -428,15 +538,14 @@ export function CityMapExplorer() {
           });
 
           const polygon = new google.maps.Polygon({
-            ...buildPolygonStyle(cityColor, isActiveCity, false),
+            ...buildPolygonStyle(localityColor, isActiveLocality, false),
             map,
             paths,
           });
 
           polygon.addListener("click", (event: google.maps.MapMouseEvent) => {
-            setSelectedCity(candidate);
+            setSelectedLocality(candidate);
             setSelectedFeatureId(feature.properties.id);
-            setQueryLabel(candidate.name);
 
             if (event.latLng && infoWindowRef.current) {
               infoWindowRef.current.setContent(
@@ -460,7 +569,7 @@ export function CityMapExplorer() {
     if (!overallBounds.isEmpty()) {
       map.fitBounds(overallBounds, 48);
     }
-  }, [cityColors, ensureCityColor, resolvedDisplayedBoundaries, selectedCityKey]);
+  }, [ensureLocalityColor, localityColors, resolvedDisplayedBoundaries, selectedLocalityKey]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -472,10 +581,10 @@ export function CityMapExplorer() {
     const selectedBounds = new google.maps.LatLngBounds();
 
     overlayEntriesRef.current.forEach((entry) => {
-      const isActiveCity = entry.cityKey === selectedCityKey;
-      const isSelected = isActiveCity && entry.featureId === selectedFeatureId;
-      const cityColor = cityColors[entry.cityKey] ?? ensureCityColor(entry.cityKey);
-      entry.polygon.setOptions(buildPolygonStyle(cityColor, isActiveCity, isSelected));
+      const isActiveLocality = entry.cityKey === selectedLocalityKey;
+      const isSelected = isActiveLocality && entry.featureId === selectedFeatureId;
+      const localityColor = localityColors[entry.cityKey] ?? ensureLocalityColor(entry.cityKey);
+      entry.polygon.setOptions(buildPolygonStyle(localityColor, isActiveLocality, isSelected));
 
       if (isSelected) {
         selectedBounds.extend(entry.bounds.getNorthEast());
@@ -486,45 +595,44 @@ export function CityMapExplorer() {
     if (selectedFeatureId && !selectedBounds.isEmpty()) {
       map.fitBounds(selectedBounds, 64);
     }
-  }, [cityColors, ensureCityColor, selectedCityKey, selectedFeatureId]);
+  }, [ensureLocalityColor, localityColors, selectedFeatureId, selectedLocalityKey]);
 
-  async function searchCities(nextCity: string) {
-    const params = new URLSearchParams({ city: nextCity });
+  async function loadProvince(nextProvince: string) {
+    const params = new URLSearchParams({ province: nextProvince });
 
-    setCityLoading(true);
+    setProvinceLoading(true);
     setError(null);
     setWarning(null);
+    setTrackedLocalities([]);
+    setSelectedLocality(null);
+    setSelectedFeatureId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
-      const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
+      const response = await fetchWithAppCheck(`/api/municipalities?${params.toString()}`);
+      const payload = (await response.json()) as ProvinceLocalitiesResponse & { details?: string; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? payload.details ?? "Request failed.");
       }
 
-      setCityCandidates(payload.cities);
-      setQueryLabel(nextCity);
-      setWarning(payload.cities.length ? null : "Polygons do not exist for this city.");
-
-      if (payload.cities.length === 1) {
-        await fetchBoundary(payload.cities[0]);
-      }
+      setLocalityCandidates(payload.municipalities);
+      setLoadedProvinceLabel(payload.metadata.province);
+      setWarning(payload.municipalities.length ? null : "No localities were found for this province.");
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to search cities.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to load province localities.";
       setError(message);
-      setCityCandidates([]);
+      setLocalityCandidates([]);
     } finally {
-      setCityLoading(false);
+      setProvinceLoading(false);
     }
   }
 
-  async function toggleTrackedCity(candidate: CityCandidate) {
-    const candidateKey = getCityCandidateKey(candidate);
-    const isTracked = trackedCities.some((entry) => getCityCandidateKey(entry) === candidateKey);
+  async function toggleTrackedLocality(candidate: LocalityCandidate) {
+    const candidateKey = getLocalityCandidateKey(candidate);
+    const isTracked = trackedLocalities.some((entry) => getLocalityCandidateKey(entry) === candidateKey);
 
     if (isTracked) {
-      setTrackedCities((current) => current.filter((entry) => getCityCandidateKey(entry) !== candidateKey));
+      setTrackedLocalities((current) => current.filter((entry) => getLocalityCandidateKey(entry) !== candidateKey));
       return;
     }
 
@@ -534,8 +642,8 @@ export function CityMapExplorer() {
       return;
     }
 
-    setTrackedCities((current) => {
-      if (current.some((entry) => getCityCandidateKey(entry) === candidateKey)) {
+    setTrackedLocalities((current) => {
+      if (current.some((entry) => getLocalityCandidateKey(entry) === candidateKey)) {
         return current;
       }
 
@@ -543,14 +651,76 @@ export function CityMapExplorer() {
     });
   }
 
-  function removeTrackedCity(candidate: CityCandidate) {
-    const candidateKey = getCityCandidateKey(candidate);
-    setTrackedCities((current) => current.filter((entry) => getCityCandidateKey(entry) !== candidateKey));
+  function removeTrackedLocality(candidate: LocalityCandidate) {
+    const candidateKey = getLocalityCandidateKey(candidate);
+    setTrackedLocalities((current) => current.filter((entry) => getLocalityCandidateKey(entry) !== candidateKey));
+  }
+
+  async function selectVisibleLocalities() {
+    const untrackedCandidates = filteredLocalityCandidates.filter(
+      (candidate) => !trackedLocalities.some((entry) => getLocalityCandidateKey(entry) === getLocalityCandidateKey(candidate)),
+    );
+
+    if (!untrackedCandidates.length) {
+      return;
+    }
+
+    setBulkSelecting(true);
+    setError(null);
+    setWarning(null);
+
+    const successfulCandidates: LocalityCandidate[] = [];
+    let failedCount = 0;
+
+    try {
+      for (let index = 0; index < untrackedCandidates.length; index += BULK_SELECTION_CONCURRENCY) {
+        const batch = untrackedCandidates.slice(index, index + BULK_SELECTION_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map((candidate) =>
+            fetchBoundary(candidate, {
+              reportErrors: false,
+              selectCandidate: false,
+              setLoadingState: false,
+            }),
+          ),
+        );
+
+        results.forEach((boundary, resultIndex) => {
+          if (boundary) {
+            successfulCandidates.push(batch[resultIndex]);
+            return;
+          }
+
+          failedCount += 1;
+        });
+      }
+
+      setTrackedLocalities((current) => {
+        const currentKeys = new Set(current.map((entry) => getLocalityCandidateKey(entry)));
+        const nextEntries = successfulCandidates.filter((candidate) => !currentKeys.has(getLocalityCandidateKey(candidate)));
+
+        return nextEntries.length ? [...current, ...nextEntries] : current;
+      });
+
+      if (!successfulCandidates.length) {
+        setWarning("No visible localities could be loaded.");
+      } else if (failedCount) {
+        setWarning(`${failedCount} visible localit${failedCount === 1 ? "y was" : "ies were"} skipped because no boundary could be loaded.`);
+      }
+    } finally {
+      setBulkSelecting(false);
+    }
+  }
+
+  function clearVisibleLocalities() {
+    setTrackedLocalities((current) =>
+      current.filter((entry) => !visibleLocalityKeys.has(getLocalityCandidateKey(entry))),
+    );
   }
 
   async function exportZone(format: ExportFormat) {
     if (!exportCandidates.length) {
-      setError("Load at least one city before exporting.");
+      setError("Load at least one locality before exporting.");
       return;
     }
 
@@ -573,7 +743,7 @@ export function CityMapExplorer() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { details?: string; error?: string };
-        throw new Error(payload.error ?? payload.details ?? "Unable to export selected city zones.");
+        throw new Error(payload.error ?? payload.details ?? "Unable to export selected locality zones.");
       }
 
       const blob = await response.blob();
@@ -590,7 +760,7 @@ export function CityMapExplorer() {
       anchor.remove();
       URL.revokeObjectURL(downloadUrl);
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to export selected city zones.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to export selected locality zones.";
       setError(message);
     } finally {
       setExportingFormat(null);
@@ -599,14 +769,14 @@ export function CityMapExplorer() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextCity = city.trim();
+    const nextProvince = provinceInput.trim();
 
-    if (!nextCity) {
-      setError("City is required.");
+    if (!nextProvince) {
+      setError("Province is required.");
       return;
     }
 
-    void searchCities(nextCity);
+    void loadProvince(nextProvince);
   }
 
   const selectedFeature =
@@ -619,28 +789,41 @@ export function CityMapExplorer() {
       <aside className="workspace-sidebar">
         <div className="workspace-scroll">
           <section className="sidebar-section">
-            <p className="sidebar-kicker">City Boundary</p>
-            <h1 className="sidebar-title">Cities</h1>
+            <p className="sidebar-kicker">Province Localities</p>
+            <h1 className="sidebar-title">Municipalities</h1>
           </section>
 
           <section className="sidebar-section">
-            <p className="sidebar-subtitle">Search</p>
+            <p className="sidebar-subtitle">Load Province</p>
             <form className="mt-4" onSubmit={handleSubmit}>
               <div className="search-shell city-search-shell">
                 <div className="flex-1">
-                  <input className="google-input" value={city} onChange={(event) => setCity(event.target.value)} placeholder="Search city, e.g. San Jose City" />
+                  <input
+                    className="google-input"
+                    value={provinceInput}
+                    onChange={(event) => setProvinceInput(event.target.value)}
+                    placeholder="Load province, e.g. Nueva Ecija"
+                  />
                 </div>
-                <button className="google-button" type="submit" disabled={cityLoading}>
-                  {cityLoading ? "Searching..." : "Search"}
+                <button className="google-button" type="submit" disabled={provinceLoading}>
+                  {provinceLoading ? "Loading..." : "Load"}
                 </button>
               </div>
             </form>
+            <div className="mt-4">
+              <input
+                className="google-input"
+                value={filterQuery}
+                onChange={(event) => setFilterQuery(event.target.value)}
+                placeholder="Filter loaded localities"
+              />
+            </div>
             <div className="mt-4 meta-strip">
-              <span>{cityCandidates.length ? `${cityCandidates.length} result${cityCandidates.length === 1 ? "" : "s"}` : "Ready"}</span>
+              <span>{localityCandidates.length ? `${localityCandidates.length} loaded` : "Ready"}</span>
               <span className="meta-dot">•</span>
-              <span>{trackedCities.length} selected</span>
+              <span>{trackedLocalities.length} selected</span>
               <span className="meta-dot">•</span>
-              <span>{selectedCity?.locationLabel ?? queryLabel}</span>
+              <span>{loadedProvinceLabel}</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <button
@@ -649,7 +832,7 @@ export function CityMapExplorer() {
                 onClick={() => void exportZone("json")}
                 type="button"
               >
-                {exportingFormat === "json" ? "Exporting..." : exportCandidates.length > 1 ? "Export Cities JSON" : "Export City JSON"}
+                {exportingFormat === "json" ? "Exporting..." : exportCandidates.length > 1 ? "Export Localities JSON" : "Export Locality JSON"}
               </button>
               <button
                 className="google-button rounded-full border border-neutral-200 bg-white px-5 py-3"
@@ -657,7 +840,7 @@ export function CityMapExplorer() {
                 onClick={() => void exportZone("sql")}
                 type="button"
               >
-                {exportingFormat === "sql" ? "Exporting..." : exportCandidates.length > 1 ? "Export Cities SQL" : "Export City SQL"}
+                {exportingFormat === "sql" ? "Exporting..." : exportCandidates.length > 1 ? "Export Localities SQL" : "Export Locality SQL"}
               </button>
             </div>
             {warning ? <p className="mt-4 text-sm leading-6 text-amber-700">{warning}</p> : null}
@@ -666,17 +849,17 @@ export function CityMapExplorer() {
 
           <section className="sidebar-section">
             <div className="flex items-center justify-between gap-3">
-              <p className="sidebar-subtitle">Selected Cities</p>
-              <span className="text-xs text-neutral-500">{trackedCities.length} tracked</span>
+              <p className="sidebar-subtitle">Selected Localities</p>
+              <span className="text-xs text-neutral-500">{trackedLocalities.length} tracked</span>
             </div>
             <div className="mt-4">
-              {!trackedCities.length ? (
-                <p className="text-sm leading-7 text-neutral-500">Choose cities from the search results to keep them here.</p>
+              {!trackedLocalities.length ? (
+                <p className="text-sm leading-7 text-neutral-500">Choose localities from the loaded province to keep them here.</p>
               ) : null}
-              {trackedCities.map((candidate) => {
-                const candidateKey = getCityCandidateKey(candidate);
-                const cityColor = cityColors[candidateKey];
-                const isCurrent = candidateKey === (selectedCity ? getCityCandidateKey(selectedCity) : null);
+              {trackedLocalities.map((candidate) => {
+                const candidateKey = getLocalityCandidateKey(candidate);
+                const localityColor = localityColors[candidateKey];
+                const isCurrent = candidateKey === (selectedLocality ? getLocalityCandidateKey(selectedLocality) : null);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
@@ -684,18 +867,16 @@ export function CityMapExplorer() {
                       <span className="flex items-center gap-2 text-sm font-medium text-neutral-900">
                         <span
                           className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: cityColor?.fillColor ?? "#9ca3af" }}
+                          style={{ backgroundColor: localityColor?.fillColor ?? "#9ca3af" }}
                         />
                         <span className="truncate">{candidate.name}</span>
                       </span>
+                      <span className="mt-1 block text-xs text-neutral-600">{localityTypeLabel(candidate)}</span>
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
-                      <span className="mt-1 block text-xs text-neutral-500">
-                        {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}
-                      </span>
                     </button>
                     <button
                       className="shrink-0 rounded-full border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
-                      onClick={() => removeTrackedCity(candidate)}
+                      onClick={() => removeTrackedLocality(candidate)}
                       type="button"
                     >
                       Remove
@@ -708,24 +889,46 @@ export function CityMapExplorer() {
 
           <section className="sidebar-section">
             <div className="flex items-center justify-between gap-3">
-              <p className="sidebar-subtitle">City Results</p>
-              <span className="text-xs text-neutral-500">{cityLoading ? "Searching..." : `${cityCandidates.length} loaded`}</span>
+              <p className="sidebar-subtitle">Loaded Localities</p>
+              <span className="text-xs text-neutral-500">{provinceLoading ? "Loading..." : `${filteredLocalityCandidates.length} visible`}</span>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <button
+                className="google-button flex-1 rounded-full border border-neutral-200 bg-white px-4 py-2.5 text-sm"
+                disabled={!filteredLocalityCandidates.length || bulkSelecting || allVisibleSelected}
+                onClick={() => void selectVisibleLocalities()}
+                type="button"
+              >
+                {bulkSelecting ? "Selecting..." : "Select Visible"}
+              </button>
+              <button
+                className="google-button flex-1 rounded-full border border-neutral-200 bg-white px-4 py-2.5 text-sm"
+                disabled={!filteredLocalityCandidates.length || bulkSelecting || !trackedLocalities.some((entry) => visibleLocalityKeys.has(getLocalityCandidateKey(entry)))}
+                onClick={clearVisibleLocalities}
+                type="button"
+              >
+                Clear Visible
+              </button>
             </div>
             <div className="mt-4">
-              {!cityCandidates.length && !cityLoading ? (
-                <p className="text-sm leading-7 text-neutral-500">No results.</p>
+              {!localityCandidates.length && !provinceLoading ? (
+                <p className="text-sm leading-7 text-neutral-500">No loaded localities.</p>
               ) : null}
-              {cityCandidates.map((candidate) => {
-                const candidateKey = getCityCandidateKey(candidate);
-                const cityColor = cityColors[candidateKey];
-                const isCurrent = candidateKey === (selectedCity ? getCityCandidateKey(selectedCity) : null);
-                const isTracked = trackedCities.some((entry) => getCityCandidateKey(entry) === candidateKey);
+              {localityCandidates.length && !filteredLocalityCandidates.length ? (
+                <p className="text-sm leading-7 text-neutral-500">No loaded localities match this filter.</p>
+              ) : null}
+              {filteredLocalityCandidates.map((candidate) => {
+                const candidateKey = getLocalityCandidateKey(candidate);
+                const localityColor = localityColors[candidateKey];
+                const isCurrent = candidateKey === (selectedLocality ? getLocalityCandidateKey(selectedLocality) : null);
+                const isTracked = trackedLocalities.some((entry) => getLocalityCandidateKey(entry) === candidateKey);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
                     <button className="min-w-0 flex-1 text-left" onClick={() => void fetchBoundary(candidate)} type="button">
                       <span className="block truncate text-sm font-medium text-neutral-900">{candidate.name}</span>
-                      {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
+                      <span className="mt-1 block text-xs text-neutral-600">{localityTypeLabel(candidate)}</span>
+                      {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-500">{candidate.locationLabel}</span> : null}
                       <span className="mt-1 block text-xs text-neutral-500">
                         {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}
                       </span>
@@ -738,15 +941,15 @@ export function CityMapExplorer() {
                           : "border-neutral-300 text-neutral-700 hover:border-neutral-400 hover:text-neutral-900"
                       }`}
                       style={
-                        isTracked && cityColor
+                        isTracked && localityColor
                           ? {
-                              backgroundColor: cityColor.pillBackground,
-                              borderColor: cityColor.pillBorder,
-                              color: cityColor.strokeColor,
+                              backgroundColor: localityColor.pillBackground,
+                              borderColor: localityColor.pillBorder,
+                              color: localityColor.strokeColor,
                             }
                           : undefined
                       }
-                      onClick={() => void toggleTrackedCity(candidate)}
+                      onClick={() => void toggleTrackedLocality(candidate)}
                       type="button"
                     >
                       {isTracked ? "Selected" : "Select"}
@@ -762,17 +965,17 @@ export function CityMapExplorer() {
       <section className="workspace-map">
         <div className="map-topline">
           <div>
-            <h2 className="text-base font-medium text-neutral-900">{selectedFeature ? selectedFeature.properties.name : "City map"}</h2>
+            <h2 className="text-base font-medium text-neutral-900">{selectedFeature ? selectedFeature.properties.name : "Province locality map"}</h2>
             <p className="mt-1 text-sm text-neutral-600">
               {selectedFeature
                 ? "Boundary selected"
                 : loading
                   ? "Loading..."
-                  : "Select a city."}
+                  : "Load a province, then select a locality."}
             </p>
           </div>
           <div className="meta-strip">
-            <span>{data?.metadata.province ?? selectedCity?.locationLabel ?? ""}</span>
+            <span>{data?.metadata.province ?? loadedProvinceLabel}</span>
           </div>
         </div>
 

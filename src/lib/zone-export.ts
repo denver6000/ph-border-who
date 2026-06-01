@@ -1,6 +1,4 @@
-import * as turf from "@turf/turf";
-import type { Feature, Polygon, MultiPolygon } from "geojson";
-
+import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
 import type { BoundaryFeatureCollection } from "@/lib/overpass";
 
 type ZoneCoordinate = {
@@ -16,8 +14,25 @@ type ExportZone = {
   status: 1;
 };
 
-const MAX_COORDINATE_POINTS = 24;
-const SIMPLIFY_TOLERANCE = 0.0006;
+type ZoneExportPayload = {
+  data: {
+    zones: {
+      current_page: number;
+      data: ExportZone[];
+      next_page_url: null;
+      path: string;
+      per_page: number;
+      prev_page_url: null;
+      to: number;
+      total: number;
+    };
+  };
+  message: string[];
+  remark: "zone";
+  status: "success";
+};
+
+type ExportFormat = "json" | "sql";
 
 function normalizePrefix(name: string) {
   return name.replace(/^\s*(barangay|brgy\.?|bgy\.?)\s*/i, "").trim();
@@ -52,52 +67,8 @@ function largestOuterRing(geometry: BoundaryFeatureCollection["features"][number
   return polygonRings.sort((left, right) => Math.abs(signedRingArea(right)) - Math.abs(signedRingArea(left)))[0] ?? [];
 }
 
-function decimateRing(ring: number[][]) {
-  if (ring.length <= MAX_COORDINATE_POINTS) {
-    return ring;
-  }
-
-  const step = Math.max(1, Math.ceil((ring.length - 1) / (MAX_COORDINATE_POINTS - 1)));
-  const reduced = ring.filter((_, index) => index === 0 || index === ring.length - 1 || index % step === 0);
-  const last = reduced[reduced.length - 1];
-  const first = reduced[0];
-
-  if (!last || !first) {
-    return ring;
-  }
-
-  if (last[0] !== first[0] || last[1] !== first[1]) {
-    reduced.push([first[0], first[1]]);
-  }
-
-  const trimmed = reduced.slice(0, MAX_COORDINATE_POINTS - 1);
-  const trimmedFirst = trimmed[0];
-  const trimmedLast = trimmed[trimmed.length - 1];
-
-  if (!trimmedFirst || !trimmedLast) {
-    return ring;
-  }
-
-  if (trimmedLast[0] !== trimmedFirst[0] || trimmedLast[1] !== trimmedFirst[1]) {
-    trimmed.push([trimmedFirst[0], trimmedFirst[1]]);
-  }
-
-  return trimmed;
-}
-
-function simplifyFeatureRing(geometry: BoundaryFeatureCollection["features"][number]["geometry"]) {
-  const feature = turf.feature(geometry as Polygon | MultiPolygon) as Feature<Polygon | MultiPolygon>;
-  const simplified = turf.simplify(feature, {
-    highQuality: false,
-    mutate: false,
-    tolerance: SIMPLIFY_TOLERANCE,
-  });
-
-  return decimateRing(largestOuterRing(simplified.geometry as BoundaryFeatureCollection["features"][number]["geometry"]));
-}
-
 function toZoneCoordinates(geometry: BoundaryFeatureCollection["features"][number]["geometry"]) {
-  return simplifyFeatureRing(geometry)
+  return largestOuterRing(geometry)
     .map(([lang, lat]) => ({
       lang,
       lat,
@@ -142,6 +113,10 @@ export function buildZoneExportPayload(boundaries: BoundaryFeatureCollection, pa
     }),
   );
 
+  return buildZonesPayload(zones, path);
+}
+
+function buildZonesPayload(zones: ExportZone[], path: string): ZoneExportPayload {
   return {
     data: {
       zones: {
@@ -161,43 +136,77 @@ export function buildZoneExportPayload(boundaries: BoundaryFeatureCollection, pa
   };
 }
 
-export function buildCityZoneExportPayload(boundaries: BoundaryFeatureCollection, path: string) {
+function escapeSqlString(value: string) {
+  return value.replace(/'/g, "''");
+}
+
+function buildZonesInsertSql(zones: ExportZone[]) {
+  if (!zones.length) {
+    return [
+      "-- No zones to export.",
+      "INSERT INTO zones (name, country, coordinates, status, created_at, updated_at) VALUES",
+      "-- Add at least one zone before running this script.",
+      ";",
+    ].join("\n");
+  }
+
+  const rows = zones.map((zone) => {
+    const coordinates = JSON.stringify(zone.coordinates);
+
+    return `('${escapeSqlString(zone.name)}', '${escapeSqlString(zone.country)}', '${escapeSqlString(coordinates)}', ${zone.status}, NOW(), NOW())`;
+  });
+
+  return [
+    "INSERT INTO zones (name, country, coordinates, status, created_at, updated_at) VALUES",
+    `${rows.join(",\n")};`,
+  ].join("\n");
+}
+
+function buildCityZoneRecord(boundaries: BoundaryFeatureCollection) {
   const country = boundaries.metadata.country === "Philippines" ? "PH" : boundaries.metadata.country;
   const primaryFeature = boundaries.features[0];
 
   if (!primaryFeature) {
-    return buildZoneExportPayload(
-      {
-        ...boundaries,
-        features: [],
-      },
-      path,
-    );
+    return null;
   }
 
-  const zones: ExportZone[] = [
-    buildZoneRecord({
-      country,
-      feature: primaryFeature,
-      name: formatCityZoneName(boundaries.metadata.city, boundaries.metadata.province),
-    }),
-  ];
-
-  return {
-    data: {
-      zones: {
-        current_page: 1,
-        data: zones,
-        next_page_url: null,
-        path,
-        per_page: zones.length,
-        prev_page_url: null,
-        to: zones.length,
-        total: zones.length,
-      },
-    },
-    message: ["Zones"],
-    remark: "zone",
-    status: "success",
-  };
+  return buildZoneRecord({
+    country,
+    feature: primaryFeature,
+    name: formatCityZoneName(boundaries.metadata.city, boundaries.metadata.province),
+  });
 }
+
+export function buildCityZoneExportPayload(boundaries: BoundaryFeatureCollection, path: string) {
+  const cityZone = buildCityZoneRecord(boundaries);
+
+  if (!cityZone) {
+    return buildZonesPayload([], path);
+  }
+
+  return buildZonesPayload([cityZone], path);
+}
+
+export function buildMultiCityZoneExportPayload(boundariesList: BoundaryFeatureCollection[], path: string) {
+  const zones = resolveNonOverlappingBoundaryCollections(boundariesList)
+    .map((boundaries) => buildCityZoneRecord(boundaries))
+    .filter((zone): zone is ExportZone => Boolean(zone));
+
+  return buildZonesPayload(zones, path);
+}
+
+export function buildCityZoneExportSql(boundaries: BoundaryFeatureCollection) {
+  const cityZone = buildCityZoneRecord(boundaries);
+
+  return buildZonesInsertSql(cityZone ? [cityZone] : []);
+}
+
+export function buildMultiCityZoneExportSql(boundariesList: BoundaryFeatureCollection[]) {
+  const zones = resolveNonOverlappingBoundaryCollections(boundariesList)
+    .map((boundaries) => buildCityZoneRecord(boundaries))
+    .filter((zone): zone is ExportZone => Boolean(zone));
+
+  return buildZonesInsertSql(zones);
+}
+
+export type { ExportFormat };

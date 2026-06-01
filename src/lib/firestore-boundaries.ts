@@ -1,6 +1,7 @@
 import { gunzipSync } from "node:zlib";
 
 import { getAdminFirestore } from "@/lib/firebase-admin";
+import { getPsgcLocalityKind } from "@/lib/psgc";
 import type { BoundaryFeature, BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/boundary-types";
 
 const DATASET_COLLECTION = "boundaryDatasets";
@@ -22,6 +23,7 @@ type FirestoreCity = {
   cityKey?: string;
   cityPcode?: string;
   cityName?: string;
+  localityType?: "city" | "municipality";
   normalizedCityName?: string;
   province?: string;
 };
@@ -38,9 +40,12 @@ type FirestoreCityIndexEntry = {
   cityKey?: string;
   cityName: string;
   cityPcode?: string;
+  localityType?: "city" | "municipality";
   normalizedCityName: string;
   province?: string;
 };
+
+type FirestoreCityQueryKind = "all" | "city" | "municipality";
 
 let cityIndexCache:
   | {
@@ -64,11 +69,14 @@ function decodeChunkFeatures(chunk: FirestoreChunk) {
 
 function normalizeName(value: string) {
   return value
+    .replace(/\([^)]*\)/g, " ")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\bcity of\b/g, "")
     .replace(/\bcity\b/g, "")
+    .replace(/\bmunicipality of\b/g, "")
+    .replace(/\bmunicipality\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -94,10 +102,62 @@ function numericIdFromCode(value: string | undefined, fallback: string) {
   return hash || 1;
 }
 
+async function resolveBoundaryCandidates(
+  matchingCities: FirestoreCityIndexEntry[],
+  {
+    kind = "all",
+    resolveMissingTypes = false,
+  }: {
+    kind?: FirestoreCityQueryKind;
+    resolveMissingTypes?: boolean;
+  },
+) {
+  const candidateKinds = new Map<string, "city" | "municipality" | null>();
+  const filteredCities = await Promise.all(
+    matchingCities.map(async (candidate) => {
+      const key = candidate.cityKey ?? candidate.cityName;
+      const localityKind =
+        candidate.localityType ??
+        (kind !== "all" || resolveMissingTypes
+          ? await getPsgcLocalityKind({
+              code: candidate.cityPcode ?? candidate.cityKey,
+              name: candidate.cityName,
+              province: candidate.province,
+            })
+          : null);
+
+      candidateKinds.set(key, localityKind);
+
+      if (kind !== "all" && localityKind !== kind) {
+        return null;
+      }
+
+      return candidate;
+    }),
+  );
+
+  return filteredCities
+    .filter((candidate): candidate is FirestoreCityIndexEntry => Boolean(candidate))
+    .sort((left, right) => left.cityName.localeCompare(right.cityName))
+    .map((candidate) => ({
+      adminLevel: "dataset",
+      borderType: "firestore",
+      id: numericIdFromCode(candidate.cityPcode ?? candidate.cityKey, candidate.cityName),
+      localityType:
+        candidate.localityType ?? candidateKinds.get(candidate.cityKey ?? candidate.cityName) ?? undefined,
+      locationLabel: candidate.province,
+      name: candidate.cityName,
+      ref: candidate.cityPcode ?? candidate.cityKey,
+      sourceType: "firestore" as const,
+    }));
+}
+
 export async function queryFirestoreCities({
   city,
+  kind = "all",
 }: {
   city?: string;
+  kind?: FirestoreCityQueryKind;
 }): Promise<CityBoundaryCandidate[]> {
   if (!city || process.env.FIRESTORE_BOUNDARIES_ENABLED === "false") {
     return [];
@@ -106,22 +166,41 @@ export async function queryFirestoreCities({
   try {
     const expected = normalizeName(city);
     const cities = await getFirestoreCityIndex();
+    const matchingCities = cities.filter((candidate) => {
+      const normalized = candidate.normalizedCityName;
+      return normalized.includes(expected) || expected.includes(normalized);
+    });
+    return await resolveBoundaryCandidates(matchingCities, {
+      kind,
+    });
+  } catch {
+    return [];
+  }
+}
 
-    return cities
-      .filter((candidate) => {
-        const normalized = candidate.normalizedCityName;
-        return normalized.includes(expected) || expected.includes(normalized);
-      })
-      .sort((left, right) => left.cityName.localeCompare(right.cityName))
-      .map((candidate) => ({
-        adminLevel: "dataset",
-        borderType: "firestore",
-        id: numericIdFromCode(candidate.cityPcode ?? candidate.cityKey, candidate.cityName),
-        locationLabel: candidate.province,
-        name: candidate.cityName,
-        ref: candidate.cityPcode ?? candidate.cityKey,
-        sourceType: "firestore",
-      }));
+export async function queryFirestoreCitiesByProvince({
+  kind = "all",
+  province,
+}: {
+  kind?: FirestoreCityQueryKind;
+  province?: string;
+}): Promise<CityBoundaryCandidate[]> {
+  if (!province || process.env.FIRESTORE_BOUNDARIES_ENABLED === "false") {
+    return [];
+  }
+
+  try {
+    const expected = normalizeName(province);
+    const cities = await getFirestoreCityIndex();
+    const matchingCities = cities.filter((candidate) => {
+      const normalizedProvince = normalizeName(candidate.province ?? "");
+      return normalizedProvince.includes(expected) || expected.includes(normalizedProvince);
+    });
+
+    return await resolveBoundaryCandidates(matchingCities, {
+      kind,
+      resolveMissingTypes: true,
+    });
   } catch {
     return [];
   }
@@ -155,6 +234,7 @@ async function getFirestoreCityIndex() {
       cityKey: candidate.cityKey,
       cityName: candidate.cityName!,
       cityPcode: candidate.cityPcode,
+      localityType: candidate.localityType,
       normalizedCityName: candidate.normalizedCityName ?? normalizeName(candidate.cityName ?? ""),
       province: candidate.province,
     }));

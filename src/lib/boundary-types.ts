@@ -17,6 +17,7 @@ export type CityBoundaryCandidate = {
   };
   id: number;
   locationLabel?: string;
+  localityType?: "city" | "municipality";
   name: string;
   ref?: string;
   sourceType?: "firestore";

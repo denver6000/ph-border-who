@@ -10,6 +10,7 @@ import {
   getAdminDb,
   getCityName,
   getCityPcode,
+  getPsgcLocalityKind,
   getProvinceName,
   makeBatchOperation,
   normalizeName,
@@ -78,6 +79,18 @@ export function chunkFeatures(features, chunkTargetBytes) {
   }
 
   return chunks;
+}
+
+async function annotateLocalityTypes(cities) {
+  return Promise.all(
+    cities.map(async (city) => ({
+      ...city,
+      localityType: await getPsgcLocalityKind({
+        name: city.cityName,
+        province: city.province,
+      }),
+    })),
+  );
 }
 
 async function readJsonFile(filePath) {
@@ -255,7 +268,7 @@ export async function importBoundaryGeoJsonToFirestore({
     });
   }
 
-  const cities = groupByCity(features);
+  const cities = await annotateLocalityTypes(groupByCity(features));
   const totalChunks = cities.reduce((sum, city) => sum + chunkFeatures(city.features, chunkTargetBytes).length, 0);
 
   console.log(`Preparing ${features.length.toLocaleString()} features from ${inputFile}`);
@@ -311,6 +324,7 @@ export async function importBoundaryGeoJsonToFirestore({
         cityPcode: city.cityPcode,
         chunkCount: chunks.length,
         featureCount: city.features.length,
+        localityType: city.localityType ?? null,
         normalizedCityName: city.normalizedCityName,
         province: city.province,
       }),
@@ -410,12 +424,14 @@ export async function importBoundaryCacheToFirestore({
     }
   }
 
+  const resolvedCities = await annotateLocalityTypes(cities);
+
   console.log(
-    `Cities: ${cities.length.toLocaleString()}, features: ${featureCount.toLocaleString()}, chunks: ${totalChunks.toLocaleString()}`,
+    `Cities: ${resolvedCities.length.toLocaleString()}, features: ${featureCount.toLocaleString()}, chunks: ${totalChunks.toLocaleString()}`,
   );
 
   if (dryRun) {
-    const topCities = [...cities]
+    const topCities = [...resolvedCities]
       .sort((left, right) => right.featureCount - left.featureCount)
       .slice(0, 10);
 
@@ -426,7 +442,7 @@ export async function importBoundaryCacheToFirestore({
 
     return {
       cacheDir,
-      cities,
+      cities: resolvedCities,
       featureCount,
       manifest,
       totalChunks,
@@ -438,7 +454,7 @@ export async function importBoundaryCacheToFirestore({
   const datasetDocument = {
     boundaryMode: "indicative",
     caveat: manifest.dataset?.caveat ?? "Indicative boundaries only; not official legal boundary data.",
-    cityCount: cities.length,
+    cityCount: resolvedCities.length,
     count: featureCount,
     datasetId,
     importedAt: new Date().toISOString(),
@@ -458,7 +474,7 @@ export async function importBoundaryCacheToFirestore({
     ),
   ];
 
-  for (const [cityIndex, city] of cities.entries()) {
+  for (const [cityIndex, city] of resolvedCities.entries()) {
     const cityRef = datasetRef.collection("cities").doc(city.cityKey);
     const cityDocument = {
       cityKey: city.cityKey,
@@ -466,6 +482,7 @@ export async function importBoundaryCacheToFirestore({
       cityPcode: city.cityPcode,
       chunkCount: city.chunkCount,
       featureCount: city.featureCount,
+      localityType: city.localityType ?? null,
       normalizedCityName: city.normalizedCityName,
       province: city.province,
     };
@@ -496,9 +513,9 @@ export async function importBoundaryCacheToFirestore({
       );
     });
 
-    if ((cityIndex + 1) % 100 === 0 || cityIndex === cities.length - 1) {
+    if ((cityIndex + 1) % 100 === 0 || cityIndex === resolvedCities.length - 1) {
       console.log(
-        `[HDX Import] Queued Firestore writes for ${String(cityIndex + 1).padStart(4, " ")} / ${cities.length.toLocaleString()} cities`,
+        `[HDX Import] Queued Firestore writes for ${String(cityIndex + 1).padStart(4, " ")} / ${resolvedCities.length.toLocaleString()} cities`,
       );
     }
   }
@@ -508,10 +525,10 @@ export async function importBoundaryCacheToFirestore({
   console.log(`Imported ${featureCount.toLocaleString()} features into Firestore dataset ${datasetId}.`);
 
   return {
-    cacheDir,
-    cities,
-    featureCount,
-    manifest,
-    totalChunks,
+      cacheDir,
+      cities: resolvedCities,
+      featureCount,
+      manifest,
+      totalChunks,
   };
 }

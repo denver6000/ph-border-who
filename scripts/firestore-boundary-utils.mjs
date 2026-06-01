@@ -11,6 +11,9 @@ export const DATASET_COLLECTION = "boundaryDatasets";
 export const DEFAULT_CHUNK_TARGET_BYTES = 650_000;
 export const MAX_BATCH_WRITES = 400;
 export const MAX_BATCH_ESTIMATED_BYTES = 8 * 1024 * 1024;
+const PSGC_API_BASE_URL = "https://psgc.gitlab.io/api";
+
+let psgcLocalitiesPromise = null;
 
 export class ImportScriptError extends Error {
   constructor(message, { details = [], solutions = [], cause } = {}) {
@@ -210,11 +213,15 @@ export function getAdminDb() {
 
 export function normalizeName(value) {
   return String(value ?? "")
+    .replace(/\([^)]*\)/g, " ")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\bcity of\b/g, "")
     .replace(/\bcity\b/g, "")
+    .replace(/\bmunicipality of\b/g, "")
+    .replace(/\bmunicipality\b/g, "")
+    .replace(/\bcapital\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -241,6 +248,107 @@ export function getBarangayPcode(feature) {
 
 export function getCityPcode(feature) {
   return String(feature.properties?.adm3Pcode ?? feature.properties?.ADM3_PCODE ?? "");
+}
+
+function localityNameKeys(value) {
+  const raw = String(value ?? "");
+  const withoutParenthetical = raw.replace(/\([^)]*\)/g, " ");
+  const normalized = normalizeName(raw);
+  const normalizedWithoutParenthetical = normalizeName(withoutParenthetical);
+
+  return new Set(
+    [normalized, normalizedWithoutParenthetical]
+      .filter(Boolean)
+      .flatMap((entry) => [
+        entry,
+        entry.replace(/\bcity\b/g, "").trim(),
+        entry.replace(/^city of\s+/, "").trim(),
+        entry.replace(/\bmunicipality\b/g, "").trim(),
+        entry.replace(/^municipality of\s+/, "").trim(),
+        entry.replace(/\bcapital\b/g, "").trim(),
+      ])
+      .filter(Boolean),
+  );
+}
+
+function containsAnyLocationPart(locationLabel, value) {
+  if (!locationLabel || !value) {
+    return false;
+  }
+
+  return normalizeName(locationLabel).includes(normalizeName(value));
+}
+
+async function fetchPsgc(pathname) {
+  const response = await fetch(`${PSGC_API_BASE_URL}${pathname}`, {
+    cache: "force-cache",
+  });
+
+  if (!response.ok) {
+    throw new Error(`PSGC request failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function getPsgcLocalitiesDataset() {
+  if (!psgcLocalitiesPromise) {
+    psgcLocalitiesPromise = Promise.all([
+      fetchPsgc("/cities-municipalities/"),
+      fetchPsgc("/provinces/"),
+    ]).then(([localities, provinces]) => ({
+      localities,
+      provincesByCode: new Map(provinces.map((province) => [province.code, province])),
+    }));
+  }
+
+  return psgcLocalitiesPromise;
+}
+
+export function inferLocalityTypeFromName(name) {
+  const normalized = normalizeName(name);
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\bcity\b/i.test(String(name ?? ""))) {
+    return "city";
+  }
+
+  return null;
+}
+
+export async function getPsgcLocalityKind({ name, province }) {
+  if (!name) {
+    return inferLocalityTypeFromName(name);
+  }
+
+  const dataset = await getPsgcLocalitiesDataset();
+  const expectedNames = localityNameKeys(name);
+  const matches = dataset.localities.filter((candidate) => {
+    const candidateKeys = localityNameKeys(candidate.name);
+    return Array.from(expectedNames).some((expectedName) => candidateKeys.has(expectedName));
+  });
+
+  if (!matches.length) {
+    return inferLocalityTypeFromName(name);
+  }
+
+  const matchedLocality =
+    matches.find((candidate) =>
+      containsAnyLocationPart(province, dataset.provincesByCode.get(String(candidate.provinceCode))?.name),
+    ) ?? matches[0];
+
+  if (matchedLocality.isMunicipality) {
+    return "municipality";
+  }
+
+  if (matchedLocality.isCity) {
+    return "city";
+  }
+
+  return inferLocalityTypeFromName(name);
 }
 
 export function toMappingFeature(feature, fallbackId = 0) {

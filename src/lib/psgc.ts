@@ -20,6 +20,12 @@ type PsgcProvince = {
   regionCode?: string;
 };
 
+type PsgcCityMunicipalityDataset = {
+  localities: PsgcCityMunicipality[];
+  localitiesByCode: Map<string, PsgcCityMunicipality>;
+  provincesByCode: Map<string, PsgcProvince>;
+};
+
 export type PsgcBarangay = {
   cityCode?: string | false;
   code: string;
@@ -37,6 +43,10 @@ export type OfficialBarangaySeedResult = {
   matchedPoints: EstimationPoint[];
   unmatchedBarangays: PsgcBarangay[];
 };
+
+export type PsgcLocalityKind = "city" | "municipality";
+
+let psgcCityMunicipalityDatasetPromise: Promise<PsgcCityMunicipalityDataset> | null = null;
 
 async function fetchPsgc<T>(path: string) {
   const response = await fetch(`${PSGC_API_BASE_URL}${path}`, {
@@ -56,6 +66,7 @@ function stripDiacritics(value: string) {
 
 export function normalizePsgcName(value: string) {
   return stripDiacritics(value)
+    .replace(/\([^)]*\)/g, " ")
     .toLowerCase()
     .replace(/\b(\d+)st\b/g, "$1")
     .replace(/\b(\d+)nd\b/g, "$1")
@@ -67,6 +78,7 @@ export function normalizePsgcName(value: string) {
     .replace(/\biv\b/g, "4")
     .replace(/\bsr\b/g, "senior")
     .replace(/\bjr\b/g, "junior")
+    .replace(/\bcapital\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
@@ -81,12 +93,17 @@ function compactName(value: string) {
     .join("");
 }
 
-function cityNameKeys(value: string) {
+function localityNameKeys(value: string) {
   const normalized = normalizePsgcName(value);
   const withoutCity = normalized.replace(/\bcity\b/g, "").trim();
   const withoutCityOf = normalized.replace(/^city of\s+/, "").trim();
+  const withoutMunicipality = normalized.replace(/\bmunicipality\b/g, "").trim();
+  const withoutMunicipalityOf = normalized.replace(/^municipality of\s+/, "").trim();
+  const withoutCapital = normalized.replace(/\bcapital\b/g, "").trim();
 
-  return new Set([normalized, withoutCity, withoutCityOf].filter(Boolean));
+  return new Set(
+    [normalized, withoutCity, withoutCityOf, withoutMunicipality, withoutMunicipalityOf, withoutCapital].filter(Boolean),
+  );
 }
 
 function containsAnyLocationPart(locationLabel: string | undefined, value: string | undefined) {
@@ -123,16 +140,45 @@ function barangayMatchScore(officialName: string, pointName: string) {
   return 0;
 }
 
-async function findPsgcCity(city: string, locationLabel?: string) {
-  const [cities, provinces] = await Promise.all([
-    fetchPsgc<PsgcCityMunicipality[]>("/cities-municipalities/"),
-    fetchPsgc<PsgcProvince[]>("/provinces/"),
-  ]);
-  const expectedNames = cityNameKeys(city);
-  const provincesByCode = new Map(provinces.map((province) => [province.code, province]));
-  const matches = cities.filter((candidate) => {
-    const candidateKeys = cityNameKeys(candidate.name);
-    return Array.from(expectedNames).some((name) => candidateKeys.has(name));
+async function getPsgcCityMunicipalityDataset() {
+  if (!psgcCityMunicipalityDatasetPromise) {
+    psgcCityMunicipalityDatasetPromise = Promise.all([
+      fetchPsgc<PsgcCityMunicipality[]>("/cities-municipalities/"),
+      fetchPsgc<PsgcProvince[]>("/provinces/"),
+    ]).then(([localities, provinces]) => ({
+      localities,
+      localitiesByCode: new Map(localities.map((locality) => [locality.code, locality])),
+      provincesByCode: new Map(provinces.map((province) => [province.code, province])),
+    }));
+  }
+
+  return psgcCityMunicipalityDatasetPromise;
+}
+
+function findPsgcCityMunicipalityMatch(
+  dataset: PsgcCityMunicipalityDataset,
+  {
+    code,
+    locationLabel,
+    name,
+  }: {
+    code?: string;
+    locationLabel?: string;
+    name: string;
+  },
+) {
+  if (code) {
+    const codeMatch = dataset.localitiesByCode.get(code);
+
+    if (codeMatch) {
+      return codeMatch;
+    }
+  }
+
+  const expectedNames = localityNameKeys(name);
+  const matches = dataset.localities.filter((candidate) => {
+    const candidateKeys = localityNameKeys(candidate.name);
+    return Array.from(expectedNames).some((expectedName) => candidateKeys.has(expectedName));
   });
 
   if (!matches.length) {
@@ -140,10 +186,51 @@ async function findPsgcCity(city: string, locationLabel?: string) {
   }
 
   return (
-    matches.find((candidate) => containsAnyLocationPart(locationLabel, provincesByCode.get(String(candidate.provinceCode))?.name)) ??
+    matches.find((candidate) =>
+      containsAnyLocationPart(locationLabel, dataset.provincesByCode.get(String(candidate.provinceCode))?.name),
+    ) ??
     matches.find((candidate) => containsAnyLocationPart(locationLabel, candidate.regionCode)) ??
     matches[0]
   );
+}
+
+export async function getPsgcLocalityKind({
+  code,
+  name,
+  province,
+}: {
+  code?: string;
+  name: string;
+  province?: string;
+}): Promise<PsgcLocalityKind | null> {
+  const dataset = await getPsgcCityMunicipalityDataset();
+  const locality = findPsgcCityMunicipalityMatch(dataset, {
+    code,
+    locationLabel: province,
+    name,
+  });
+
+  if (!locality) {
+    return null;
+  }
+
+  if (locality.isMunicipality) {
+    return "municipality";
+  }
+
+  if (locality.isCity) {
+    return "city";
+  }
+
+  return null;
+}
+
+async function findPsgcCity(city: string, locationLabel?: string) {
+  const dataset = await getPsgcCityMunicipalityDataset();
+  return findPsgcCityMunicipalityMatch(dataset, {
+    locationLabel,
+    name: city,
+  });
 }
 
 export async function findOfficialBarangaysForCity({
