@@ -377,6 +377,7 @@ function toCityCandidate(boundary: CityBoundary): CityBoundaryCandidate {
     locationLabel: buildLocationLabel(boundary.tags),
     name: boundary.tags.name ?? `Relation ${boundary.id}`,
     ref: boundary.tags.ref,
+    sourceType: "overpass",
     wikidata: boundary.tags.wikidata,
     wikipedia: boundary.tags.wikipedia,
   };

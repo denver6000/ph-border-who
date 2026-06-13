@@ -271,6 +271,115 @@ a {
   height: calc(100vh - 64px - 72px);
 }
 
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.segmented-button {
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.55rem 0.9rem;
+}
+
+.segmented-button-active {
+  background: #111827;
+  color: #ffffff;
+}
+
+.comparison-panel {
+  height: calc(100vh - 64px - 72px);
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.comparison-maps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 52vh;
+}
+
+.comparison-map-block {
+  display: grid;
+  min-height: 52vh;
+  grid-template-rows: auto minmax(360px, 1fr);
+  border-right: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.comparison-map-block:last-child {
+  border-right: 0;
+}
+
+.comparison-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.85rem 1rem;
+  color: #6b7280;
+  font-size: 0.82rem;
+}
+
+.comparison-map-header strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+.comparison-map-canvas {
+  min-height: 360px;
+}
+
+.comparison-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  border-top: 1px solid #e5e7eb;
+  background: #e5e7eb;
+}
+
+.comparison-stat {
+  min-height: 92px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.comparison-stat span {
+  display: block;
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.comparison-stat strong {
+  display: block;
+  margin-top: 0.5rem;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.comparison-stat p {
+  margin: 0.45rem 0 0;
+  color: #4b5563;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.comparison-stat-wide {
+  grid-column: span 5;
+}
+
 .map-panel-tall {
   height: calc(100vh - 64px - 72px);
 }
@@ -501,8 +610,23 @@ a {
   }
 
   .map-panel,
-  .map-panel-tall {
+  .map-panel-tall,
+  .comparison-panel {
     height: 60vh;
     min-height: 420px;
+  }
+
+  .comparison-maps,
+  .comparison-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-map-block {
+    border-right: 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .comparison-stat-wide {
+    grid-column: span 1;
   }
 }

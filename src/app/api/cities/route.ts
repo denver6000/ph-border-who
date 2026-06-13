@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
 import { queryFirestoreCities } from "@/lib/firestore-boundaries";
+import { searchCityBoundaries } from "@/lib/overpass";
 
 export const runtime = "nodejs";
 
@@ -27,14 +28,19 @@ export async function GET(request: NextRequest) {
     });
 
     if (!cities.length) {
+      const osmCities = await searchCityBoundaries({
+        city,
+        country,
+      }).catch(() => []);
+
       return NextResponse.json({
-        cities: [],
+        cities: osmCities,
         metadata: {
           city,
           country,
-          count: 0,
+          count: osmCities.length,
           generatedAt: new Date().toISOString(),
-          source: "firestore",
+          source: osmCities.length ? "overpass" : "firestore",
         },
       });
     }

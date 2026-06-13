@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
-import { listMunicipalityCandidates, resolveMergedMunicipalityBoundaries } from "@/lib/municipality-boundary-service";
+import { compareMunicipalityNativeAndOsm } from "@/lib/municipality-boundary-comparison";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const province = searchParams.get("province")?.trim();
-  const country = searchParams.get("country")?.trim() || "Philippines";
-  const includeBoundaries = searchParams.get("includeBoundaries") === "true";
-  const includeOsmFallback = searchParams.get("osmFallback") === "true";
+  const locality = searchParams.get("locality")?.trim() ?? searchParams.get("city")?.trim();
+  const province = searchParams.get("province")?.trim() || undefined;
 
-  if (!province) {
+  if (!locality) {
     return NextResponse.json(
       {
-        error: 'Missing required "province" query parameter.',
+        error: 'Missing required "locality" query parameter.',
       },
       { status: 400 },
     );
@@ -24,22 +22,8 @@ export async function GET(request: NextRequest) {
   try {
     await verifyAppCheckRequest(request);
 
-    if (includeBoundaries) {
-      const result = await resolveMergedMunicipalityBoundaries({
-        country,
-        includeOsmFallback,
-        province,
-      });
-
-      return NextResponse.json(result, {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-
-    const result = await listMunicipalityCandidates({
-      country,
+    const result = await compareMunicipalityNativeAndOsm({
+      locality,
       province,
     });
 
@@ -63,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "Failed to load province localities from Firestore.",
+        error: "Failed to compare municipality boundaries.",
         details: message,
       },
       { status: 502 },

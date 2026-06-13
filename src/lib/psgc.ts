@@ -46,6 +46,8 @@ export type OfficialBarangaySeedResult = {
 
 export type PsgcLocalityKind = "city" | "municipality";
 
+export type PsgcLocality = PsgcCityMunicipality;
+
 let psgcCityMunicipalityDatasetPromise: Promise<PsgcCityMunicipalityDataset> | null = null;
 
 async function fetchPsgc<T>(path: string) {
@@ -223,6 +225,24 @@ export async function getPsgcLocalityKind({
   }
 
   return null;
+}
+
+export async function findOfficialLocalitiesForProvince(province: string) {
+  const dataset = await getPsgcCityMunicipalityDataset();
+  const expectedProvince = normalizePsgcName(province);
+  const matchedProvince = Array.from(dataset.provincesByCode.values()).find((candidate) => {
+    const candidateName = normalizePsgcName(candidate.name);
+
+    return candidateName === expectedProvince || candidateName.includes(expectedProvince) || expectedProvince.includes(candidateName);
+  });
+
+  if (!matchedProvince) {
+    return [];
+  }
+
+  return dataset.localities
+    .filter((locality) => locality.provinceCode === matchedProvince.code)
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 async function findPsgcCity(city: string, locationLabel?: string) {

@@ -20,7 +20,7 @@ export type CityBoundaryCandidate = {
   localityType?: "city" | "municipality";
   name: string;
   ref?: string;
-  sourceType?: "firestore";
+  sourceType?: "firestore" | "native-zone-sql" | "osm" | "overpass" | "psgc";
   wikidata?: string;
   wikipedia?: string;
 };
@@ -37,7 +37,7 @@ export type BoundaryFeature = {
     name: string;
     place?: string;
     psgcCode?: string;
-    sourceType: "estimated" | "firestore-hdx-cod-ab" | "hdx-cod-ab" | "relation" | "way";
+    sourceType: "estimated" | "firestore-hdx-cod-ab" | "hdx-cod-ab" | "native-zone-sql" | "relation" | "way";
   };
 };
 

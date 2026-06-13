@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "audit:zone-boundaries": "node scripts/audit-zone-boundary-collisions.mjs",
     "backfill:firebase:locality-types": "node scripts/backfill-firestore-locality-types.mjs",
     "extract:barangay-map-search": "node scripts/extract-barangay-map-search.mjs",
     "export:firestore-boundaries": "node scripts/export-firestore-boundaries.mjs",
+    "export:hdx-zones-sql": "node scripts/export-hdx-zones-sql.mjs",
     "import:firebase:hdx": "node scripts/import-hdx-to-firebase.mjs",
     "import:firebase:hdx:dry-run": "node scripts/import-hdx-to-firebase.mjs --dry-run",
     "import:hdx": "node scripts/import-hdx-boundaries.mjs",

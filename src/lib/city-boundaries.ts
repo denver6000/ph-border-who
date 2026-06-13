@@ -3,6 +3,8 @@ import type { Feature, MultiPolygon, Polygon } from "geojson";
 
 import type { BoundaryFeatureCollection, BoundaryFeature } from "@/lib/boundary-types";
 import { queryFirestoreBarangayBoundaries } from "@/lib/firestore-boundaries";
+import { queryNativeZones } from "@/lib/native-zones";
+import { queryCityBoundaryByRelationId, queryCityBoundaryBySearch } from "@/lib/overpass";
 
 type ResolveCityBoundaryArgs = {
   city?: string;
@@ -101,7 +103,7 @@ function hashCityId(city: string, province?: string) {
   return hash || 1;
 }
 
-async function queryFirestoreCityBoundary({
+export async function queryFirestoreCityBoundary({
   city,
   country = "Philippines",
   province,
@@ -143,6 +145,7 @@ export async function resolveCityBoundary({
   country = "Philippines",
   locationLabel,
   province,
+  relationId,
 }: ResolveCityBoundaryArgs): Promise<BoundaryFeatureCollection> {
   const firestoreBoundary = await queryFirestoreCityBoundary({
     city,
@@ -154,8 +157,39 @@ export async function resolveCityBoundary({
     return firestoreBoundary;
   }
 
-  if (!city) {
+  if (city) {
+    const nativeBoundary = await queryNativeZones({
+      country: "PH",
+      locality: city,
+      province: province ?? locationLabel,
+    });
+
+    if (nativeBoundary.features.length) {
+      return nativeBoundary;
+    }
+  }
+
+  if (!city && !relationId) {
     throw new Error('Missing required "city" query parameter.');
+  }
+
+  const osmBoundary = (
+    relationId
+      ? await queryCityBoundaryByRelationId({
+          city,
+          country,
+          locationLabel: province ?? locationLabel,
+          relationId,
+        })
+      : await queryCityBoundaryBySearch({
+          city: city ?? "",
+          country,
+          province: province ?? locationLabel,
+        })
+  ) as unknown as BoundaryFeatureCollection;
+
+  if (osmBoundary.features.length) {
+    return osmBoundary;
   }
 
   return {
@@ -164,12 +198,12 @@ export async function resolveCityBoundary({
     metadata: {
       adminLevels: ["6", "7", "8"],
       boundaryMode: "indicative",
-      city,
+      city: city ?? `Relation ${relationId}`,
       count: 0,
       country,
       generatedAt: new Date().toISOString(),
       province: province ?? locationLabel,
-      source: "Firestore boundary dataset",
+      source: "Firestore boundary dataset, OSM Overpass fallback",
     },
   };
 }

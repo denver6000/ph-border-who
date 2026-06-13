@@ -11,14 +11,52 @@ type BoundaryResponse = BoundaryFeatureCollection;
 type LocalityCandidate = CityBoundaryCandidate;
 
 type ProvinceLocalitiesResponse = {
+  boundaries?: MergedMunicipalityBoundary[];
   metadata: {
     count: number;
     country: string;
+    firebaseCount?: number;
     generatedAt: string;
+    missingCount?: number;
+    nativeZoneCount?: number;
+    osmCompatibleCount?: number;
+    osmIncompatibleCount?: number;
     province: string;
-    source?: "firestore";
+    source?: "firebase-native-osm-merged" | "firebase-native-psgc-list" | "firebase-osm-merged" | "firestore";
   };
   municipalities: LocalityCandidate[];
+};
+
+type MergedMunicipalityBoundary = {
+  boundary: BoundaryResponse | null;
+  candidate: LocalityCandidate;
+  status: "firebase" | "native-zone" | "osm-compatible" | "osm-incompatible" | "missing";
+};
+
+type BoundaryComparisonResponse = {
+  locality: string;
+  native: BoundaryResponse;
+  osm: BoundaryResponse;
+  province?: string;
+  stats: {
+    algorithmicCompensation: {
+      applied: boolean;
+      generatedPointPercent: number;
+      note: string;
+    };
+    areaDeltaM2: number | null;
+    areaDeltaPercentOfNative: number | null;
+    intersectionAreaM2: number;
+    iou: number | null;
+    nativeAreaM2: number | null;
+    nativeOnlyAreaM2: number | null;
+    nativeOverlapPercent: number | null;
+    nativeVertexCount: number;
+    osmAreaM2: number | null;
+    osmOnlyAreaM2: number | null;
+    osmOverlapPercent: number | null;
+    osmVertexCount: number;
+  };
 };
 
 type OverlayEntry = {
@@ -29,6 +67,7 @@ type OverlayEntry = {
 };
 
 type ExportFormat = "json" | "sql";
+type MapTab = "localities" | "comparison";
 
 type LocalityColor = {
   fillColor: string;
@@ -40,6 +79,7 @@ type LocalityColor = {
 const DEFAULT_PROVINCE = "Nueva Ecija";
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const BULK_SELECTION_CONCURRENCY = 6;
+const NATIVE_ZONE_LAYER_KEY = "__native-zone-sql";
 const LOCALITY_COLOR_PALETTE: LocalityColor[] = [
   { fillColor: "#ef4444", pillBackground: "#fef2f2", pillBorder: "#fecaca", strokeColor: "#dc2626" },
   { fillColor: "#f97316", pillBackground: "#fff7ed", pillBorder: "#fed7aa", strokeColor: "#ea580c" },
@@ -119,6 +159,18 @@ function buildPolygonStyle(color: LocalityColor, isActiveLocality: boolean, isAc
   };
 }
 
+function buildNativeZoneStyle(isActiveFeature: boolean): google.maps.PolygonOptions {
+  return {
+    clickable: true,
+    fillColor: "#2563eb",
+    fillOpacity: isActiveFeature ? 0.16 : 0.08,
+    strokeColor: "#1d4ed8",
+    strokeOpacity: isActiveFeature ? 0.85 : 0.48,
+    strokeWeight: isActiveFeature ? 2.5 : 1.5,
+    zIndex: isActiveFeature ? 18 : 6,
+  };
+}
+
 function readDownloadFilename(response: Response) {
   const disposition = response.headers.get("Content-Disposition");
 
@@ -128,6 +180,73 @@ function readDownloadFilename(response: Response) {
 
   const match = disposition.match(/filename="([^"]+)"/i);
   return match?.[1] ?? null;
+}
+
+function clearPolygons(polygons: google.maps.Polygon[]) {
+  polygons.forEach((polygon) => {
+    google.maps.event.clearInstanceListeners(polygon);
+    polygon.setMap(null);
+  });
+}
+
+function drawBoundaryCollection({
+  collection,
+  fillColor,
+  map,
+  strokeColor,
+}: {
+  collection: BoundaryResponse;
+  fillColor: string;
+  map: google.maps.Map;
+  strokeColor: string;
+}) {
+  const bounds = new google.maps.LatLngBounds();
+  const polygons: google.maps.Polygon[] = [];
+
+  collection.features.forEach((feature) => {
+    getFeatureGeometrySets(feature).forEach((polygonCoordinateSet) => {
+      const paths = polygonCoordinateSet.map((ring) => {
+        const latLngPath = toLatLngPath(ring);
+        extendBoundsFromPath(bounds, latLngPath);
+        return latLngPath;
+      });
+      const polygon = new google.maps.Polygon({
+        clickable: false,
+        fillColor,
+        fillOpacity: 0.12,
+        map,
+        paths,
+        strokeColor,
+        strokeOpacity: 0.95,
+        strokeWeight: 2.5,
+        zIndex: 10,
+      });
+
+      polygons.push(polygon);
+    });
+  });
+
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds, 40);
+  }
+
+  return polygons;
+}
+
+function formatSquareMeters(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)} km2`;
+  }
+
+  return `${value.toFixed(0)} m2`;
+}
+
+function formatPercent(value: number | null) {
+  return value === null || !Number.isFinite(value) ? "n/a" : `${value.toFixed(2)}%`;
 }
 
 function normalizeClientText(value: string) {
@@ -175,6 +294,26 @@ function localitySortScore(candidate: LocalityCandidate, filterQuery: string) {
   return 3;
 }
 
+function renderableMergedBoundaries(boundaries: MergedMunicipalityBoundary[] | undefined) {
+  return (boundaries ?? []).filter(
+    (entry) => entry.boundary?.features.length && entry.status !== "osm-incompatible",
+  );
+}
+
+function exportRelationId(candidate: LocalityCandidate, boundary: BoundaryResponse) {
+  if (candidate.sourceType === "overpass" || candidate.sourceType === "osm") {
+    return candidate.id;
+  }
+
+  const primaryFeature = boundary.features[0];
+
+  if (primaryFeature?.properties.sourceType === "relation") {
+    return boundary.metadata.cityBoundary?.id ?? primaryFeature.properties.id;
+  }
+
+  return undefined;
+}
+
 type FetchBoundaryOptions = {
   reportErrors?: boolean;
   selectCandidate?: boolean;
@@ -183,14 +322,22 @@ type FetchBoundaryOptions = {
 
 export function MunicipalityMapExplorer() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const nativeCompareMapContainerRef = useRef<HTMLDivElement | null>(null);
+  const osmCompareMapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
+  const nativeCompareMapRef = useRef<google.maps.Map | null>(null);
+  const osmCompareMapRef = useRef<google.maps.Map | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const overlayEntriesRef = useRef<OverlayEntry[]>([]);
+  const comparisonOverlayEntriesRef = useRef<google.maps.Polygon[]>([]);
   const boundaryCacheRef = useRef<Record<string, BoundaryResponse>>({});
   const localityColorsRef = useRef<Record<string, LocalityColor>>({});
+  const boundaryRequestIdRef = useRef(0);
+  const comparisonRequestIdRef = useRef(0);
+  const provinceRequestIdRef = useRef(0);
 
   const [provinceInput, setProvinceInput] = useState(DEFAULT_PROVINCE);
-  const [loadedProvinceLabel, setLoadedProvinceLabel] = useState(DEFAULT_PROVINCE);
+  const [loadedProvinceLabel, setLoadedProvinceLabel] = useState("No province loaded");
   const [filterQuery, setFilterQuery] = useState("");
   const [localityCandidates, setLocalityCandidates] = useState<LocalityCandidate[]>([]);
   const [trackedLocalities, setTrackedLocalities] = useState<LocalityCandidate[]>([]);
@@ -200,9 +347,15 @@ export function MunicipalityMapExplorer() {
   const [provinceLoading, setProvinceLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [activeMapTab, setActiveMapTab] = useState<MapTab>("localities");
   const [bulkSelecting, setBulkSelecting] = useState(false);
+  const [comparisonData, setComparisonData] = useState<BoundaryComparisonResponse | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const nativeZonesLoading = false;
   const [warning, setWarning] = useState<string | null>(null);
+  const [selectedNativeZoneId, setSelectedNativeZoneId] = useState<number | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
   const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mapError, setMapError] = useState<string | null>(null);
@@ -332,6 +485,96 @@ export function MunicipalityMapExplorer() {
     return nextColor;
   }, []);
 
+  const ensureLocalityColors = useCallback((cityKeys: string[]) => {
+    const uniqueMissingKeys = Array.from(new Set(cityKeys)).filter((cityKey) => !localityColorsRef.current[cityKey]);
+
+    if (!uniqueMissingKeys.length) {
+      return;
+    }
+
+    setLocalityColors((current) => {
+      const nextAssignments = { ...current };
+      let usedFillColors = new Set(Object.values(nextAssignments).map((entry) => entry.fillColor));
+
+      uniqueMissingKeys.forEach((cityKey) => {
+        if (nextAssignments[cityKey]) {
+          return;
+        }
+
+        const availableColors = LOCALITY_COLOR_PALETTE.filter((entry) => !usedFillColors.has(entry.fillColor));
+        const colorPool = availableColors.length ? availableColors : LOCALITY_COLOR_PALETTE;
+        const nextColor = colorPool[Math.floor(Math.random() * colorPool.length)];
+
+        nextAssignments[cityKey] = nextColor;
+        usedFillColors = new Set([...usedFillColors, nextColor.fillColor]);
+      });
+
+      localityColorsRef.current = nextAssignments;
+      return nextAssignments;
+    });
+  }, []);
+
+  const applyMergedBoundaryPayload = useCallback((payload: ProvinceLocalitiesResponse) => {
+    const renderableBoundaries = renderableMergedBoundaries(payload.boundaries);
+    const nextBoundaryEntries: Record<string, BoundaryResponse> = {};
+    const nextTrackedLocalities: LocalityCandidate[] = [];
+    const nextTrackedKeys: string[] = [];
+
+    renderableBoundaries.forEach((entry) => {
+      if (!entry.boundary) {
+        return;
+      }
+
+      const candidateKey = getLocalityCandidateKey(entry.candidate);
+      nextBoundaryEntries[candidateKey] = entry.boundary;
+      nextTrackedLocalities.push(entry.candidate);
+      nextTrackedKeys.push(candidateKey);
+    });
+
+    ensureLocalityColors(nextTrackedKeys);
+
+    if (Object.keys(nextBoundaryEntries).length) {
+      setBoundaryCache((current) => {
+        const nextCache = {
+          ...current,
+          ...nextBoundaryEntries,
+        };
+        boundaryCacheRef.current = nextCache;
+        return nextCache;
+      });
+    }
+
+    setTrackedLocalities(nextTrackedLocalities);
+    setSelectedLocality(nextTrackedLocalities[0] ?? null);
+    setSelectedFeatureId(renderableBoundaries[0]?.boundary?.features[0]?.properties.id ?? null);
+
+    const missingCount = payload.metadata.missingCount ?? 0;
+    const nativeCount = payload.metadata.nativeZoneCount ?? 0;
+    const incompatibleCount = payload.metadata.osmIncompatibleCount ?? 0;
+    const osmCount = payload.metadata.osmCompatibleCount ?? 0;
+
+    if (missingCount || incompatibleCount) {
+      setWarning(
+        `${missingCount} localit${missingCount === 1 ? "y is" : "ies are"} still missing boundaries. ${incompatibleCount} OSM fallback${incompatibleCount === 1 ? " was" : "s were"} held back by compatibility checks. ${nativeCount} native zone${nativeCount === 1 ? " was" : "s were"} rendered.`,
+      );
+      return;
+    }
+
+    if (osmCount || nativeCount) {
+      setWarning(
+        `${osmCount} OSM fallback boundar${osmCount === 1 ? "y was" : "ies were"} merged. ${nativeCount} native zone${nativeCount === 1 ? " was" : "s were"} rendered.`,
+      );
+      return;
+    }
+
+    setWarning(null);
+  }, [ensureLocalityColors]);
+  const applyMergedBoundaryPayloadRef = useRef(applyMergedBoundaryPayload);
+
+  useEffect(() => {
+    applyMergedBoundaryPayloadRef.current = applyMergedBoundaryPayload;
+  }, [applyMergedBoundaryPayload]);
+
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
       return;
@@ -403,7 +646,12 @@ export function MunicipalityMapExplorer() {
       setLoadingState = true,
     } = options;
     const candidateKey = getLocalityCandidateKey(candidate);
+    const requestId = selectCandidate ? boundaryRequestIdRef.current + 1 : boundaryRequestIdRef.current;
     const params = new URLSearchParams({ city: candidate.name });
+
+    if (selectCandidate) {
+      boundaryRequestIdRef.current = requestId;
+    }
 
     if (candidate.locationLabel) {
       params.set("locationLabel", candidate.locationLabel);
@@ -417,6 +665,7 @@ export function MunicipalityMapExplorer() {
     if (selectCandidate) {
       setSelectedLocality(candidate);
       setSelectedFeatureId(null);
+      setSelectedNativeZoneId(null);
     }
 
     const cachedBoundary = boundaryCacheRef.current[candidateKey];
@@ -436,6 +685,10 @@ export function MunicipalityMapExplorer() {
     try {
       const response = await fetchWithAppCheck(`/api/cities/boundary?${params.toString()}`);
       const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
+
+      if (selectCandidate && boundaryRequestIdRef.current !== requestId) {
+        return null;
+      }
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -461,50 +714,76 @@ export function MunicipalityMapExplorer() {
       }
       return payload;
     } catch (caughtError) {
+      if (selectCandidate && boundaryRequestIdRef.current !== requestId) {
+        return null;
+      }
+
       const message = caughtError instanceof Error ? caughtError.message : "Unable to load locality boundary.";
       if (reportErrors) {
         setError(message);
       }
       return null;
     } finally {
-      if (setLoadingState) {
+      if (setLoadingState && (!selectCandidate || boundaryRequestIdRef.current === requestId)) {
         setLoading(false);
       }
     }
   }, [ensureLocalityColor]);
 
-  useEffect(() => {
-    async function loadInitialProvince() {
-      setProvinceLoading(true);
+  const fetchBoundaryComparison = useCallback(async (candidate: LocalityCandidate | null) => {
+    const requestId = comparisonRequestIdRef.current + 1;
+    comparisonRequestIdRef.current = requestId;
 
-      try {
-        const params = new URLSearchParams({ province: DEFAULT_PROVINCE });
-        const response = await fetchWithAppCheck(`/api/municipalities?${params.toString()}`);
-        const payload = (await response.json()) as ProvinceLocalitiesResponse & { details?: string; error?: string };
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? payload.details ?? "Request failed.");
-        }
-
-        setLocalityCandidates(payload.municipalities);
-        setLoadedProvinceLabel(payload.metadata.province);
-        setWarning(payload.municipalities.length ? null : "No localities were found for this province.");
-      } catch (caughtError) {
-        const message = caughtError instanceof Error ? caughtError.message : "Unable to load province localities.";
-        setError(message);
-        setLocalityCandidates([]);
-      } finally {
-        setProvinceLoading(false);
-      }
+    if (!candidate) {
+      setComparisonData(null);
+      setComparisonError("Select a municipality or city to compare.");
+      return;
     }
 
-    void loadInitialProvince();
+    const params = new URLSearchParams({
+      locality: candidate.name,
+    });
+
+    if (candidate.locationLabel) {
+      params.set("province", candidate.locationLabel);
+    }
+
+    setComparisonLoading(true);
+    setComparisonError(null);
+
+    try {
+      const response = await fetchWithAppCheck(`/api/municipalities/compare?${params.toString()}`);
+      const payload = (await response.json()) as BoundaryComparisonResponse & { details?: string; error?: string };
+
+      if (comparisonRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? payload.details ?? "Request failed.");
+      }
+
+      setComparisonData(payload);
+    } catch (caughtError) {
+      if (comparisonRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to compare boundaries.";
+      setComparisonData(null);
+      setComparisonError(message);
+    } finally {
+      if (comparisonRequestIdRef.current === requestId) {
+        setComparisonLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
+    const nativeZoneFeatures: BoundaryFeature[] = [];
 
-    if (!map || !resolvedDisplayedBoundaries.length) {
+    if (!map || (!resolvedDisplayedBoundaries.length && !nativeZoneFeatures.length)) {
       overlayEntriesRef.current.forEach((entry) => {
         google.maps.event.clearInstanceListeners(entry.polygon);
         entry.polygon.setMap(null);
@@ -521,8 +800,47 @@ export function MunicipalityMapExplorer() {
 
     const overallBounds = new google.maps.LatLngBounds();
 
+    nativeZoneFeatures.forEach((feature) => {
+      const geometrySets = getFeatureGeometrySets(feature);
+
+      geometrySets.forEach((polygonCoordinateSet) => {
+        const polygonBounds = new google.maps.LatLngBounds();
+        const paths = polygonCoordinateSet.map((ring) => {
+          const latLngPath = toLatLngPath(ring);
+          extendBoundsFromPath(polygonBounds, latLngPath);
+          extendBoundsFromPath(overallBounds, latLngPath);
+          return latLngPath;
+        });
+
+        const polygon = new google.maps.Polygon({
+          ...buildNativeZoneStyle(false),
+          map,
+          paths,
+        });
+
+        polygon.addListener("click", (event: google.maps.MapMouseEvent) => {
+          setSelectedNativeZoneId(feature.properties.id);
+          setSelectedFeatureId(null);
+
+          if (event.latLng && infoWindowRef.current) {
+            infoWindowRef.current.setContent(
+              `<div style="font-family: Arial, sans-serif; padding: 2px 4px;"><strong>${feature.properties.name}</strong><br />Native zone</div>`,
+            );
+            infoWindowRef.current.setPosition(event.latLng);
+            infoWindowRef.current.open({ map });
+          }
+        });
+
+        overlayEntriesRef.current.push({
+          bounds: polygonBounds,
+          cityKey: NATIVE_ZONE_LAYER_KEY,
+          featureId: feature.properties.id,
+          polygon,
+        });
+      });
+    });
+
     resolvedDisplayedBoundaries.forEach(({ candidate, cityKey, data: localityData }) => {
-      const isActiveLocality = cityKey === selectedLocalityKey;
       const localityColor = localityColors[cityKey] ?? ensureLocalityColor(cityKey);
 
       localityData.features.forEach((feature) => {
@@ -538,7 +856,7 @@ export function MunicipalityMapExplorer() {
           });
 
           const polygon = new google.maps.Polygon({
-            ...buildPolygonStyle(localityColor, isActiveLocality, false),
+            ...buildPolygonStyle(localityColor, false, false),
             map,
             paths,
           });
@@ -546,6 +864,7 @@ export function MunicipalityMapExplorer() {
           polygon.addListener("click", (event: google.maps.MapMouseEvent) => {
             setSelectedLocality(candidate);
             setSelectedFeatureId(feature.properties.id);
+            setSelectedNativeZoneId(null);
 
             if (event.latLng && infoWindowRef.current) {
               infoWindowRef.current.setContent(
@@ -569,7 +888,71 @@ export function MunicipalityMapExplorer() {
     if (!overallBounds.isEmpty()) {
       map.fitBounds(overallBounds, 48);
     }
-  }, [ensureLocalityColor, localityColors, resolvedDisplayedBoundaries, selectedLocalityKey]);
+  }, [ensureLocalityColor, localityColors, resolvedDisplayedBoundaries]);
+
+  useEffect(() => {
+    const currentComparison = comparisonData;
+
+    if (activeMapTab !== "comparison" || !GOOGLE_MAPS_API_KEY || !currentComparison) {
+      return;
+    }
+
+    let active = true;
+    const comparison = currentComparison;
+
+    async function drawComparisonMaps() {
+      await loadGoogleMapsApi(GOOGLE_MAPS_API_KEY!);
+
+      if (!active || !nativeCompareMapContainerRef.current || !osmCompareMapContainerRef.current) {
+        return;
+      }
+
+      const nativeMap =
+        nativeCompareMapRef.current ??
+        new google.maps.Map(nativeCompareMapContainerRef.current, {
+          center: { lat: 14.8, lng: 121 },
+          clickableIcons: false,
+          fullscreenControl: false,
+          mapTypeControl: false,
+          streetViewControl: false,
+          zoom: 10,
+        });
+      const osmMap =
+        osmCompareMapRef.current ??
+        new google.maps.Map(osmCompareMapContainerRef.current, {
+          center: { lat: 14.8, lng: 121 },
+          clickableIcons: false,
+          fullscreenControl: false,
+          mapTypeControl: false,
+          streetViewControl: false,
+          zoom: 10,
+        });
+
+      nativeCompareMapRef.current = nativeMap;
+      osmCompareMapRef.current = osmMap;
+      clearPolygons(comparisonOverlayEntriesRef.current);
+      comparisonOverlayEntriesRef.current = [
+        ...drawBoundaryCollection({
+          collection: comparison.native,
+          fillColor: "#2563eb",
+          map: nativeMap,
+          strokeColor: "#1d4ed8",
+        }),
+        ...drawBoundaryCollection({
+          collection: comparison.osm,
+          fillColor: "#dc2626",
+          map: osmMap,
+          strokeColor: "#b91c1c",
+        }),
+      ];
+    }
+
+    void drawComparisonMaps();
+
+    return () => {
+      active = false;
+    };
+  }, [activeMapTab, comparisonData]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -581,6 +964,18 @@ export function MunicipalityMapExplorer() {
     const selectedBounds = new google.maps.LatLngBounds();
 
     overlayEntriesRef.current.forEach((entry) => {
+      if (entry.cityKey === NATIVE_ZONE_LAYER_KEY) {
+        const isSelectedNativeZone = entry.featureId === selectedNativeZoneId;
+        entry.polygon.setOptions(buildNativeZoneStyle(isSelectedNativeZone));
+
+        if (isSelectedNativeZone) {
+          selectedBounds.extend(entry.bounds.getNorthEast());
+          selectedBounds.extend(entry.bounds.getSouthWest());
+        }
+
+        return;
+      }
+
       const isActiveLocality = entry.cityKey === selectedLocalityKey;
       const isSelected = isActiveLocality && entry.featureId === selectedFeatureId;
       const localityColor = localityColors[entry.cityKey] ?? ensureLocalityColor(entry.cityKey);
@@ -592,12 +987,14 @@ export function MunicipalityMapExplorer() {
       }
     });
 
-    if (selectedFeatureId && !selectedBounds.isEmpty()) {
+    if ((selectedFeatureId || selectedNativeZoneId) && !selectedBounds.isEmpty()) {
       map.fitBounds(selectedBounds, 64);
     }
-  }, [ensureLocalityColor, localityColors, selectedFeatureId, selectedLocalityKey]);
+  }, [ensureLocalityColor, localityColors, selectedFeatureId, selectedLocalityKey, selectedNativeZoneId]);
 
   async function loadProvince(nextProvince: string) {
+    const requestId = provinceRequestIdRef.current + 1;
+    provinceRequestIdRef.current = requestId;
     const params = new URLSearchParams({ province: nextProvince });
 
     setProvinceLoading(true);
@@ -606,10 +1003,15 @@ export function MunicipalityMapExplorer() {
     setTrackedLocalities([]);
     setSelectedLocality(null);
     setSelectedFeatureId(null);
+    setSelectedNativeZoneId(null);
 
     try {
       const response = await fetchWithAppCheck(`/api/municipalities?${params.toString()}`);
       const payload = (await response.json()) as ProvinceLocalitiesResponse & { details?: string; error?: string };
+
+      if (provinceRequestIdRef.current !== requestId) {
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(payload.error ?? payload.details ?? "Request failed.");
@@ -619,11 +1021,17 @@ export function MunicipalityMapExplorer() {
       setLoadedProvinceLabel(payload.metadata.province);
       setWarning(payload.municipalities.length ? null : "No localities were found for this province.");
     } catch (caughtError) {
+      if (provinceRequestIdRef.current !== requestId) {
+        return;
+      }
+
       const message = caughtError instanceof Error ? caughtError.message : "Unable to load province localities.";
       setError(message);
       setLocalityCandidates([]);
     } finally {
-      setProvinceLoading(false);
+      if (provinceRequestIdRef.current === requestId) {
+        setProvinceLoading(false);
+      }
     }
   }
 
@@ -734,9 +1142,10 @@ export function MunicipalityMapExplorer() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          cities: exportCandidates.map((candidate) => ({
-            city: candidate.name,
-            locationLabel: candidate.locationLabel,
+          cities: resolvedDisplayedBoundaries.map((entry) => ({
+            city: entry.candidate.name,
+            locationLabel: entry.candidate.locationLabel,
+            relationId: exportRelationId(entry.candidate, entry.data),
           })),
         }),
       });
@@ -822,6 +1231,8 @@ export function MunicipalityMapExplorer() {
               <span>{localityCandidates.length ? `${localityCandidates.length} loaded` : "Ready"}</span>
               <span className="meta-dot">•</span>
               <span>{trackedLocalities.length} selected</span>
+              <span className="meta-dot">•</span>
+              <span>{nativeZonesLoading ? "Zones loading" : "0 zones preloaded"}</span>
               <span className="meta-dot">•</span>
               <span>{loadedProvinceLabel}</span>
             </div>
@@ -934,6 +1345,17 @@ export function MunicipalityMapExplorer() {
                       </span>
                     </button>
                     <button
+                      className="shrink-0 rounded-full border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+                      onClick={() => {
+                        setSelectedLocality(candidate);
+                        setActiveMapTab("comparison");
+                        void fetchBoundaryComparison(candidate);
+                      }}
+                      type="button"
+                    >
+                      Compare
+                    </button>
+                    <button
                       aria-pressed={isTracked}
                       className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition ${
                         isTracked
@@ -965,32 +1387,139 @@ export function MunicipalityMapExplorer() {
       <section className="workspace-map">
         <div className="map-topline">
           <div>
-            <h2 className="text-base font-medium text-neutral-900">{selectedFeature ? selectedFeature.properties.name : "Province locality map"}</h2>
+            <h2 className="text-base font-medium text-neutral-900">
+              {activeMapTab === "comparison"
+                ? comparisonData?.locality ?? selectedLocality?.name ?? "OSM vs Native"
+                : selectedFeature
+                  ? selectedFeature.properties.name
+                  : "Province locality map"}
+            </h2>
             <p className="mt-1 text-sm text-neutral-600">
-              {selectedFeature
-                ? "Boundary selected"
-                : loading
-                  ? "Loading..."
-                  : "Load a province, then select a locality."}
+              {activeMapTab === "comparison"
+                ? "Raw whole-municipality outlines"
+                : selectedFeature
+                  ? "Boundary selected"
+                  : loading
+                    ? "Loading..."
+                    : "Load a province, then select a locality."}
             </p>
           </div>
-          <div className="meta-strip">
-            <span>{data?.metadata.province ?? loadedProvinceLabel}</span>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="segmented-control" role="tablist" aria-label="Map view">
+              <button
+                aria-selected={activeMapTab === "localities"}
+                className={`segmented-button ${activeMapTab === "localities" ? "segmented-button-active" : ""}`}
+                onClick={() => setActiveMapTab("localities")}
+                role="tab"
+                type="button"
+              >
+                Localities
+              </button>
+              <button
+                aria-selected={activeMapTab === "comparison"}
+                className={`segmented-button ${activeMapTab === "comparison" ? "segmented-button-active" : ""}`}
+                onClick={() => {
+                  setActiveMapTab("comparison");
+                  void fetchBoundaryComparison(selectedLocality ?? trackedLocalities[0] ?? null);
+                }}
+                role="tab"
+                type="button"
+              >
+                OSM vs Native
+              </button>
+            </div>
+            <div className="meta-strip">
+              <span>{data?.metadata.province ?? loadedProvinceLabel}</span>
+            </div>
           </div>
         </div>
 
-        <div className="map-panel">
-          {mapStatus === "error" ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-7 text-neutral-600">{mapError}</div>
-          ) : missingKey ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-7 text-neutral-600">
-              Add <code className="mx-1 rounded bg-neutral-200 px-1.5 py-0.5 text-xs">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>
-              to your <code className="mx-1 rounded bg-neutral-200 px-1.5 py-0.5 text-xs">.env</code> file to render Google Maps.
+        {activeMapTab === "comparison" ? (
+          <div className="comparison-panel">
+            <div className="comparison-maps">
+              <section className="comparison-map-block">
+                <div className="comparison-map-header">
+                  <span>Native</span>
+                  <strong>{comparisonData?.native.features.length ?? 0} outline</strong>
+                </div>
+                <div ref={nativeCompareMapContainerRef} className="simple-map comparison-map-canvas" />
+              </section>
+              <section className="comparison-map-block">
+                <div className="comparison-map-header">
+                  <span>OSM</span>
+                  <strong>{comparisonData?.osm.features.length ?? 0} outline</strong>
+                </div>
+                <div ref={osmCompareMapContainerRef} className="simple-map comparison-map-canvas" />
+              </section>
             </div>
-          ) : (
-            <div ref={mapContainerRef} className="simple-map h-full w-full" />
-          )}
-        </div>
+            <div className="comparison-stats">
+              {comparisonLoading ? <p className="text-sm text-neutral-600">Comparing boundaries...</p> : null}
+              {comparisonError ? <p className="text-sm text-red-700">{comparisonError}</p> : null}
+              {comparisonData ? (
+                <>
+                  <div className="comparison-stat">
+                    <span>Native area</span>
+                    <strong>{formatSquareMeters(comparisonData.stats.nativeAreaM2)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>OSM area</span>
+                    <strong>{formatSquareMeters(comparisonData.stats.osmAreaM2)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>Shared overlap</span>
+                    <strong>{formatSquareMeters(comparisonData.stats.intersectionAreaM2)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>IoU</span>
+                    <strong>{comparisonData.stats.iou === null ? "n/a" : comparisonData.stats.iou.toFixed(4)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>Native covered by OSM</span>
+                    <strong>{formatPercent(comparisonData.stats.nativeOverlapPercent)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>OSM covered by native</span>
+                    <strong>{formatPercent(comparisonData.stats.osmOverlapPercent)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>Native-only gap</span>
+                    <strong>{formatSquareMeters(comparisonData.stats.nativeOnlyAreaM2)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>OSM-only gap</span>
+                    <strong>{formatSquareMeters(comparisonData.stats.osmOnlyAreaM2)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>Area delta</span>
+                    <strong>{formatPercent(comparisonData.stats.areaDeltaPercentOfNative)}</strong>
+                  </div>
+                  <div className="comparison-stat">
+                    <span>Vertices</span>
+                    <strong>{comparisonData.stats.nativeVertexCount} / {comparisonData.stats.osmVertexCount}</strong>
+                  </div>
+                  <div className="comparison-stat comparison-stat-wide">
+                    <span>Algorithmic compensation</span>
+                    <strong>{comparisonData.stats.algorithmicCompensation.generatedPointPercent.toFixed(0)}% generated points</strong>
+                    <p>{comparisonData.stats.algorithmicCompensation.note}</p>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="map-panel">
+            {mapStatus === "error" ? (
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-7 text-neutral-600">{mapError}</div>
+            ) : missingKey ? (
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-7 text-neutral-600">
+                Add <code className="mx-1 rounded bg-neutral-200 px-1.5 py-0.5 text-xs">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>
+                to your <code className="mx-1 rounded bg-neutral-200 px-1.5 py-0.5 text-xs">.env</code> file to render Google Maps.
+              </div>
+            ) : (
+              <div ref={mapContainerRef} className="simple-map h-full w-full" />
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

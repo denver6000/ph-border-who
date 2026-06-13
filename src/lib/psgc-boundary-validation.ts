@@ -1,4 +1,4 @@
-import type { BoundaryFeature, BoundaryFeatureCollection } from "@/lib/overpass";
+import type { BoundaryFeature, BoundaryFeatureCollection } from "@/lib/boundary-types";
 import { findOfficialBarangaysForCity, normalizePsgcName, type PsgcBarangay } from "@/lib/psgc";
 
 function normalizeCode(value: string | undefined) {

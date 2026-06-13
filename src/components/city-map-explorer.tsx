@@ -129,6 +129,65 @@ function readDownloadFilename(response: Response) {
   return match?.[1] ?? null;
 }
 
+function isOsmBoundary(collection: BoundaryResponse) {
+  return collection.features.some((feature) => feature.properties.sourceType === "relation" || feature.properties.sourceType === "way");
+}
+
+function isNativeBoundary(collection: BoundaryResponse) {
+  return collection.features.some((feature) => feature.properties.sourceType === "native-zone-sql");
+}
+
+function getBoundarySourceNotice(collection: BoundaryResponse, cityName: string) {
+  if (isOsmBoundary(collection)) {
+    return `${cityName} is rendered from OSM fallback. The local Firestore/native polygon was not available for this city.`;
+  }
+
+  if (isNativeBoundary(collection)) {
+    return `${cityName} is rendered from the native SQL fallback.`;
+  }
+
+  return null;
+}
+
+function candidateSourceLabel(candidate: CityCandidate) {
+  if (candidate.sourceType === "overpass") {
+    return "OSM fallback";
+  }
+
+  if (candidate.sourceType === "native-zone-sql") {
+    return "Native zone";
+  }
+
+  return null;
+}
+
+function exportRelationId(candidate: CityCandidate, boundary: BoundaryResponse) {
+  if (candidate.sourceType === "overpass") {
+    return candidate.id;
+  }
+
+  const primaryFeature = boundary.features[0];
+
+  if (primaryFeature?.properties.sourceType === "relation") {
+    return boundary.metadata.cityBoundary?.id ?? primaryFeature.properties.id;
+  }
+
+  return undefined;
+}
+
+function parseOsmRelationId(value: string) {
+  const trimmed = value.trim();
+  const direct = trimmed.match(/^\d+$/);
+
+  if (direct) {
+    return Number(direct[0]);
+  }
+
+  const urlMatch = trimmed.match(/(?:openstreetmap\.org\/relation\/|\/relation\/)(\d+)/i);
+
+  return urlMatch ? Number(urlMatch[1]) : null;
+}
+
 export function CityMapExplorer() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -138,6 +197,7 @@ export function CityMapExplorer() {
   const cityColorsRef = useRef<Record<string, CityColor>>({});
 
   const [city, setCity] = useState(DEFAULT_CITY);
+  const [osmRelationInput, setOsmRelationInput] = useState("");
   const [queryLabel, setQueryLabel] = useState(DEFAULT_CITY);
   const [cityCandidates, setCityCandidates] = useState<CityCandidate[]>([]);
   const [trackedCities, setTrackedCities] = useState<CityCandidate[]>([]);
@@ -146,6 +206,7 @@ export function CityMapExplorer() {
   const [cityColors, setCityColors] = useState<Record<string, CityColor>>({});
   const [cityLoading, setCityLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [osmRelationLoading, setOsmRelationLoading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -311,6 +372,10 @@ export function CityMapExplorer() {
       params.set("locationLabel", candidate.locationLabel);
     }
 
+    if (candidate.sourceType === "overpass") {
+      params.set("relationId", String(candidate.id));
+    }
+
     setError(null);
     setWarning(null);
     setSelectedCity(candidate);
@@ -322,6 +387,7 @@ export function CityMapExplorer() {
     if (cachedBoundary) {
       setQueryLabel(candidate.name);
       setSelectedFeatureId(cachedBoundary.features[0]?.properties.id ?? null);
+      setWarning(getBoundarySourceNotice(cachedBoundary, candidate.name));
       return cachedBoundary;
     }
 
@@ -333,7 +399,7 @@ export function CityMapExplorer() {
 
       if (!response.ok) {
         if (response.status === 404) {
-          setWarning("Polygons do not exist for this city.");
+          setWarning("No Firestore, native, or OSM polygon could be loaded for this city.");
           return null;
         }
         throw new Error(payload.error ?? payload.details ?? "Request failed.");
@@ -349,6 +415,7 @@ export function CityMapExplorer() {
       });
       setSelectedFeatureId(payload.features[0]?.properties.id ?? null);
       setQueryLabel(candidate.name);
+      setWarning(getBoundarySourceNotice(payload, candidate.name));
       return payload;
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Unable to load city boundary.";
@@ -543,6 +610,53 @@ export function CityMapExplorer() {
     });
   }
 
+  async function loadOsmRelation() {
+    const relationId = parseOsmRelationId(osmRelationInput);
+
+    if (!relationId) {
+      setError("Enter an OSM relation ID or relation URL.");
+      return;
+    }
+
+    const cityName = city.trim() || `OSM relation ${relationId}`;
+    const candidate: CityCandidate = {
+      adminLevel: "osm-relation",
+      borderType: "manual-osm-relation",
+      id: relationId,
+      locationLabel: queryLabel && queryLabel !== DEFAULT_CITY ? queryLabel : undefined,
+      name: cityName,
+      ref: `osm-relation:${relationId}`,
+      sourceType: "overpass",
+    };
+
+    setOsmRelationLoading(true);
+
+    try {
+      const boundary = await fetchBoundary(candidate);
+
+      if (!boundary) {
+        return;
+      }
+
+      setCityCandidates((current) => {
+        if (current.some((entry) => getCityCandidateKey(entry) === getCityCandidateKey(candidate))) {
+          return current;
+        }
+
+        return [candidate, ...current];
+      });
+      setTrackedCities((current) => {
+        if (current.some((entry) => getCityCandidateKey(entry) === getCityCandidateKey(candidate))) {
+          return current;
+        }
+
+        return [...current, candidate];
+      });
+    } finally {
+      setOsmRelationLoading(false);
+    }
+  }
+
   function removeTrackedCity(candidate: CityCandidate) {
     const candidateKey = getCityCandidateKey(candidate);
     setTrackedCities((current) => current.filter((entry) => getCityCandidateKey(entry) !== candidateKey));
@@ -564,9 +678,10 @@ export function CityMapExplorer() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          cities: exportCandidates.map((candidate) => ({
-            city: candidate.name,
-            locationLabel: candidate.locationLabel,
+          cities: resolvedDisplayedBoundaries.map((entry) => ({
+            city: entry.candidate.name,
+            locationLabel: entry.candidate.locationLabel,
+            relationId: exportRelationId(entry.candidate, entry.data),
           })),
         }),
       });
@@ -635,6 +750,21 @@ export function CityMapExplorer() {
                 </button>
               </div>
             </form>
+            <div className="mt-4">
+              <div className="search-shell city-search-shell">
+                <div className="flex-1">
+                  <input
+                    className="google-input"
+                    value={osmRelationInput}
+                    onChange={(event) => setOsmRelationInput(event.target.value)}
+                    placeholder="OSM relation ID or URL"
+                  />
+                </div>
+                <button className="google-button" type="button" disabled={osmRelationLoading} onClick={() => void loadOsmRelation()}>
+                  {osmRelationLoading ? "Loading..." : "Load OSM"}
+                </button>
+              </div>
+            </div>
             <div className="mt-4 meta-strip">
               <span>{cityCandidates.length ? `${cityCandidates.length} result${cityCandidates.length === 1 ? "" : "s"}` : "Ready"}</span>
               <span className="meta-dot">•</span>
@@ -677,6 +807,7 @@ export function CityMapExplorer() {
                 const candidateKey = getCityCandidateKey(candidate);
                 const cityColor = cityColors[candidateKey];
                 const isCurrent = candidateKey === (selectedCity ? getCityCandidateKey(selectedCity) : null);
+                const sourceLabel = candidateSourceLabel(candidate);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
@@ -689,6 +820,7 @@ export function CityMapExplorer() {
                         <span className="truncate">{candidate.name}</span>
                       </span>
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
+                      {sourceLabel ? <span className="mt-1 block text-xs font-medium text-amber-700">{sourceLabel}</span> : null}
                       <span className="mt-1 block text-xs text-neutral-500">
                         {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}
                       </span>
@@ -720,12 +852,14 @@ export function CityMapExplorer() {
                 const cityColor = cityColors[candidateKey];
                 const isCurrent = candidateKey === (selectedCity ? getCityCandidateKey(selectedCity) : null);
                 const isTracked = trackedCities.some((entry) => getCityCandidateKey(entry) === candidateKey);
+                const sourceLabel = candidateSourceLabel(candidate);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
                     <button className="min-w-0 flex-1 text-left" onClick={() => void fetchBoundary(candidate)} type="button">
                       <span className="block truncate text-sm font-medium text-neutral-900">{candidate.name}</span>
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
+                      {sourceLabel ? <span className="mt-1 block text-xs font-medium text-amber-700">{sourceLabel}</span> : null}
                       <span className="mt-1 block text-xs text-neutral-500">
                         {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}
                       </span>

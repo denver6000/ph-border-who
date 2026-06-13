@@ -1,5 +1,5 @@
 import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
-import type { BoundaryFeatureCollection } from "@/lib/overpass";
+import type { BoundaryFeatureCollection } from "@/lib/boundary-types";
 
 type ZoneCoordinate = {
   lang: number;
