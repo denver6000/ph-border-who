@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
+import { ApiKeyVerificationError, verifyAppApiKeyRequest } from "@/lib/app-api-key-server";
 import { resolveCityBoundary } from "@/lib/city-boundaries";
 import {
   buildCityZoneExportPayload,
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await verifyAppCheckRequest(request);
+    verifyAppApiKeyRequest(request);
 
     const boundary = await resolveCityBoundary({
       city,
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    if (error instanceof AppCheckVerificationError) {
+    if (error instanceof ApiKeyVerificationError) {
       return NextResponse.json(
         {
           error: error.message,
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await verifyAppCheckRequest(request);
+    verifyAppApiKeyRequest(request);
 
     const boundaries = await Promise.all(
       cities.map((entry) =>
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    if (error instanceof AppCheckVerificationError) {
+    if (error instanceof ApiKeyVerificationError) {
       return NextResponse.json(
         {
           error: error.message,

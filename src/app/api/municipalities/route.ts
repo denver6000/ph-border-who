@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AppCheckVerificationError, verifyAppCheckRequest } from "@/lib/app-check-server";
+import { ApiKeyVerificationError, verifyAppApiKeyRequest } from "@/lib/app-api-key-server";
 import { listMunicipalityCandidates, resolveMergedMunicipalityBoundaries } from "@/lib/municipality-boundary-service";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await verifyAppCheckRequest(request);
+    verifyAppApiKeyRequest(request);
 
     if (includeBoundaries) {
       const result = await resolveMergedMunicipalityBoundaries({
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    if (error instanceof AppCheckVerificationError) {
+    if (error instanceof ApiKeyVerificationError) {
       return NextResponse.json(
         {
           error: error.message,

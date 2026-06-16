@@ -19,6 +19,16 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Optional basic API gate. Set both values to the same generated key to enable it.
+  - variable: APP_API_KEY
+    value: ""
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_APP_API_KEY
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: "AIzaSyBB7DkBo5sBDVVXKXmqsNcImRahvpemCyg"
     availability:
@@ -49,18 +59,8 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: NEXT_PUBLIC_RECAPTCHA_V3_SITE_KEY
-    value: "6LfKfPksAAAAAPn0xP7y7eZgwhULG3wlZ8SDCo6t"
-    availability:
-      - BUILD
-      - RUNTIME
   - variable: FIREBASE_PROJECT_ID
     value: "bounds-finder"
-    availability:
-      - BUILD
-      - RUNTIME
-  - variable: FIREBASE_APP_CHECK_ENABLED
-    value: "true"
     availability:
       - BUILD
       - RUNTIME

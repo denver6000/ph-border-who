@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchWithAppCheck } from "@/lib/app-check-fetch";
+import { fetchWithAppApiKey } from "@/lib/app-api-key-fetch";
 import type { BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/boundary-types";
 import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
 
@@ -394,7 +394,7 @@ export function CityMapExplorer() {
     setLoading(true);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/boundary?${params.toString()}`);
+      const response = await fetchWithAppApiKey(`/api/cities/boundary?${params.toString()}`);
       const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
 
       if (!response.ok) {
@@ -432,7 +432,7 @@ export function CityMapExplorer() {
 
       try {
         const params = new URLSearchParams({ city: DEFAULT_CITY });
-        const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
+        const response = await fetchWithAppApiKey(`/api/cities?${params.toString()}`);
         const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
 
         if (!response.ok) {
@@ -563,7 +563,7 @@ export function CityMapExplorer() {
     setWarning(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities?${params.toString()}`);
+      const response = await fetchWithAppApiKey(`/api/cities?${params.toString()}`);
       const payload = (await response.json()) as CitySearchResponse & { details?: string; error?: string };
 
       if (!response.ok) {
@@ -672,7 +672,7 @@ export function CityMapExplorer() {
     setError(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/export?format=${format}`, {
+      const response = await fetchWithAppApiKey(`/api/cities/export?format=${format}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

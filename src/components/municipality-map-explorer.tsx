@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchWithAppCheck } from "@/lib/app-check-fetch";
+import { fetchWithAppApiKey } from "@/lib/app-api-key-fetch";
 import type { BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/boundary-types";
 import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
 
@@ -683,7 +683,7 @@ export function MunicipalityMapExplorer() {
     }
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/boundary?${params.toString()}`);
+      const response = await fetchWithAppApiKey(`/api/cities/boundary?${params.toString()}`);
       const payload = (await response.json()) as BoundaryResponse & { details?: string; error?: string };
 
       if (selectCandidate && boundaryRequestIdRef.current !== requestId) {
@@ -752,7 +752,7 @@ export function MunicipalityMapExplorer() {
     setComparisonError(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/municipalities/compare?${params.toString()}`);
+      const response = await fetchWithAppApiKey(`/api/municipalities/compare?${params.toString()}`);
       const payload = (await response.json()) as BoundaryComparisonResponse & { details?: string; error?: string };
 
       if (comparisonRequestIdRef.current !== requestId) {
@@ -1006,7 +1006,7 @@ export function MunicipalityMapExplorer() {
     setSelectedNativeZoneId(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/municipalities?${params.toString()}`);
+      const response = await fetchWithAppApiKey(`/api/municipalities?${params.toString()}`);
       const payload = (await response.json()) as ProvinceLocalitiesResponse & { details?: string; error?: string };
 
       if (provinceRequestIdRef.current !== requestId) {
@@ -1136,7 +1136,7 @@ export function MunicipalityMapExplorer() {
     setError(null);
 
     try {
-      const response = await fetchWithAppCheck(`/api/cities/export?format=${format}`, {
+      const response = await fetchWithAppApiKey(`/api/cities/export?format=${format}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
