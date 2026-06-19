@@ -105,15 +105,23 @@ function toOfficialCandidate(locality: PsgcLocality, province: string): Official
 }
 
 function toCityCandidate(locality: OfficialLocalityCandidate, firestoreCandidate?: CityBoundaryCandidate): CityBoundaryCandidate {
+  const sourceType = firestoreCandidate?.sourceType ?? "psgc";
+
   return {
     adminLevel: firestoreCandidate?.adminLevel ?? "psgc",
+    boundaryStatus:
+      sourceType === "firestore"
+        ? "firestore"
+        : sourceType === "native-zone-sql"
+          ? "native-zone"
+          : "psgc-unchecked",
     borderType: firestoreCandidate?.borderType ?? "official-locality",
     id: firestoreCandidate?.id ?? hashCandidateId(locality.code),
     localityType: locality.localityType,
     locationLabel: firestoreCandidate?.locationLabel ?? locality.province,
     name: firestoreCandidate?.name ?? locality.name,
     ref: firestoreCandidate?.ref ?? locality.code,
-    sourceType: firestoreCandidate?.sourceType ?? "psgc",
+    sourceType,
   };
 }
 
@@ -365,6 +373,11 @@ async function fillMissingBoundariesWithNativeAndOsm({
       resolved.push({
         ...result,
         boundary: nativeBoundary,
+        candidate: {
+          ...result.candidate,
+          boundaryStatus: "native-zone",
+          sourceType: "native-zone-sql",
+        },
         source: "native-zone-sql",
         status: "native-zone",
       });
@@ -396,6 +409,10 @@ async function fillMissingBoundariesWithNativeAndOsm({
       resolved.push({
         ...result,
         boundary: osmBoundary,
+        candidate: {
+          ...result.candidate,
+          boundaryStatus: "osm",
+        },
         compatibility,
         source: "osm",
         status: "osm-incompatible",
@@ -407,6 +424,10 @@ async function fillMissingBoundariesWithNativeAndOsm({
     resolved.push({
       ...result,
       boundary: osmBoundary,
+      candidate: {
+        ...result.candidate,
+        boundaryStatus: "osm",
+      },
       compatibility,
       source: "osm",
       status: "osm-compatible",

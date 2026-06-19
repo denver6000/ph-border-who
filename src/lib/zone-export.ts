@@ -177,6 +177,18 @@ function buildCityZoneRecord(boundaries: BoundaryFeatureCollection) {
   });
 }
 
+function buildBoundaryZoneRecords(boundaries: BoundaryFeatureCollection) {
+  const country = boundaries.metadata.country === "Philippines" ? "PH" : boundaries.metadata.country;
+
+  return boundaries.features.map((feature) =>
+    buildZoneRecord({
+      country,
+      feature,
+      name: feature.properties.name,
+    }),
+  );
+}
+
 export function buildCityZoneExportPayload(boundaries: BoundaryFeatureCollection, path: string) {
   const cityZone = buildCityZoneRecord(boundaries);
 
@@ -195,6 +207,10 @@ export function buildMultiCityZoneExportPayload(boundariesList: BoundaryFeatureC
   return buildZonesPayload(zones, path);
 }
 
+export function buildBoundaryZoneExportPayload(boundaries: BoundaryFeatureCollection, path: string) {
+  return buildZonesPayload(buildBoundaryZoneRecords(boundaries), path);
+}
+
 export function buildCityZoneExportSql(boundaries: BoundaryFeatureCollection) {
   const cityZone = buildCityZoneRecord(boundaries);
 
@@ -207,6 +223,10 @@ export function buildMultiCityZoneExportSql(boundariesList: BoundaryFeatureColle
     .filter((zone): zone is ExportZone => Boolean(zone));
 
   return buildZonesInsertSql(zones);
+}
+
+export function buildBoundaryZoneExportSql(boundaries: BoundaryFeatureCollection) {
+  return buildZonesInsertSql(buildBoundaryZoneRecords(boundaries));
 }
 
 export type { ExportFormat };

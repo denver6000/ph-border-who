@@ -48,6 +48,12 @@ export type PsgcLocalityKind = "city" | "municipality";
 
 export type PsgcLocality = PsgcCityMunicipality;
 
+export type PsgcLocalitySearchResult = PsgcCityMunicipality & {
+  localityType: PsgcLocalityKind;
+  provinceName?: string;
+  psgc10DigitCode: string;
+};
+
 let psgcCityMunicipalityDatasetPromise: Promise<PsgcCityMunicipalityDataset> | null = null;
 
 async function fetchPsgc<T>(path: string) {
@@ -88,6 +94,28 @@ export function normalizePsgcName(value: string) {
     .join(" ");
 }
 
+export function toPsgc10DigitCode(value: string | undefined) {
+  const digits = value?.replace(/\D/g, "") ?? "";
+
+  if (digits.length === 10) {
+    return digits;
+  }
+
+  if (digits.length === 9) {
+    return `${digits.slice(0, 2)}0${digits.slice(2)}`;
+  }
+
+  if (digits.length === 7) {
+    return `${digits}000`;
+  }
+
+  if (digits.length === 6) {
+    return `${digits.slice(0, 2)}0${digits.slice(2)}000`;
+  }
+
+  return digits;
+}
+
 function compactName(value: string) {
   return normalizePsgcName(value)
     .split(/\s+/)
@@ -106,6 +134,69 @@ function localityNameKeys(value: string) {
   return new Set(
     [normalized, withoutCity, withoutCityOf, withoutMunicipality, withoutMunicipalityOf, withoutCapital].filter(Boolean),
   );
+}
+
+function localityDisplayKeys(locality: PsgcCityMunicipality, provinceName?: string) {
+  const psgc10DigitCode = toPsgc10DigitCode(locality.code);
+
+  return new Set(
+    [
+      locality.name,
+      locality.oldName,
+      locality.code,
+      psgc10DigitCode,
+      provinceName,
+      `${locality.name} ${provinceName ?? ""}`,
+      `${locality.oldName ?? ""} ${provinceName ?? ""}`,
+    ]
+      .map((value) => (value ? normalizePsgcName(value) : ""))
+      .filter(Boolean),
+  );
+}
+
+function localitySearchScore(locality: PsgcCityMunicipality, query: string, provinceName?: string) {
+  const normalizedQuery = normalizePsgcName(query);
+  const queryDigits = query.replace(/\D/g, "");
+  const codeCandidates = new Set([locality.code, toPsgc10DigitCode(locality.code)].filter(Boolean));
+
+  if (!normalizedQuery && !queryDigits) {
+    return 0;
+  }
+
+  if (queryDigits && codeCandidates.has(queryDigits)) {
+    return 120;
+  }
+
+  const matchingCode = queryDigits ? Array.from(codeCandidates).find((code) => code.startsWith(queryDigits)) : undefined;
+
+  if (matchingCode) {
+    return 110 - Math.max(0, matchingCode.length - queryDigits.length);
+  }
+
+  const keys = localityDisplayKeys(locality, provinceName);
+  const nameKeys = localityNameKeys(locality.name);
+
+  if (nameKeys.has(normalizedQuery)) {
+    return 100;
+  }
+
+  if (keys.has(normalizedQuery)) {
+    return 96;
+  }
+
+  const startsWithScore = Array.from(keys).some((key) => key.startsWith(normalizedQuery));
+
+  if (startsWithScore) {
+    return 82;
+  }
+
+  const includesScore = Array.from(keys).some((key) => key.includes(normalizedQuery) || normalizedQuery.includes(key));
+
+  if (includesScore) {
+    return 64;
+  }
+
+  return 0;
 }
 
 function containsAnyLocationPart(locationLabel: string | undefined, value: string | undefined) {
@@ -243,6 +334,54 @@ export async function findOfficialLocalitiesForProvince(province: string) {
   return dataset.localities
     .filter((locality) => locality.provinceCode === matchedProvince.code)
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function searchOfficialLocalities({
+  kind = "all",
+  limit = 20,
+  query,
+}: {
+  kind?: PsgcLocalityKind | "all";
+  limit?: number;
+  query: string;
+}): Promise<PsgcLocalitySearchResult[]> {
+  const trimmedQuery = query.trim();
+
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  const dataset = await getPsgcCityMunicipalityDataset();
+
+  return dataset.localities
+    .filter((locality) => {
+      if (kind === "city" && !locality.isCity) {
+        return false;
+      }
+
+      if (kind === "municipality" && !locality.isMunicipality) {
+        return false;
+      }
+
+      return true;
+    })
+    .map((locality) => {
+      const provinceName = dataset.provincesByCode.get(String(locality.provinceCode))?.name;
+      return {
+        locality,
+        provinceName,
+        score: localitySearchScore(locality, trimmedQuery, provinceName),
+      };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.locality.name.localeCompare(right.locality.name))
+    .slice(0, limit)
+    .map(({ locality, provinceName }) => ({
+      ...locality,
+      localityType: locality.isMunicipality ? "municipality" : "city",
+      provinceName,
+      psgc10DigitCode: toPsgc10DigitCode(locality.code),
+    }));
 }
 
 async function findPsgcCity(city: string, locationLabel?: string) {

@@ -60,16 +60,18 @@ type BoundaryResponse = {
 
 type CityCandidate = {
   adminLevel?: string;
+  boundaryStatus?: "firestore" | "native-zone" | "osm" | "psgc-unchecked" | "missing";
   borderType?: string;
   center?: {
     lat: number;
     lon: number;
   };
   id: number;
+  localityType?: "city" | "municipality";
   locationLabel?: string;
   name: string;
   ref?: string;
-  sourceType?: "firestore";
+  sourceType?: "firestore" | "native-zone-sql" | "osm" | "overpass" | "psgc";
 };
 
 type CitySearchResponse = {
@@ -79,7 +81,7 @@ type CitySearchResponse = {
     country: string;
     count: number;
     generatedAt: string;
-    source?: "firestore" | "overpass";
+    source?: "firestore" | "overpass" | "psgc-firestore-native-osm-on-select";
   };
 };
 
@@ -158,6 +160,26 @@ function buildPolygonStyle(color: string, selected: boolean): google.maps.Polygo
     strokeOpacity: selected ? 1 : 0.78,
     strokeWeight: selected ? 3 : 2,
   };
+}
+
+function candidateSourceLabel(candidate: CityCandidate) {
+  if (candidate.boundaryStatus === "firestore") {
+    return "PSGC · Firestore polygon";
+  }
+
+  if (candidate.boundaryStatus === "native-zone") {
+    return "PSGC · Native polygon";
+  }
+
+  if (candidate.sourceType === "psgc") {
+    return "PSGC · checks polygons on load";
+  }
+
+  if (candidate.sourceType === "overpass") {
+    return "OSM fallback";
+  }
+
+  return null;
 }
 
 export function BarangayMapExplorer() {
@@ -545,6 +567,7 @@ export function BarangayMapExplorer() {
               ) : null}
               {cityCandidates.map((candidate) => {
                 const isSelected = candidate.id === selectedCity?.id;
+                const sourceLabel = candidateSourceLabel(candidate);
 
                 return (
                   <button
@@ -556,6 +579,7 @@ export function BarangayMapExplorer() {
                     <span className="min-w-0 flex-1 text-left">
                       <span className="block truncate text-sm font-medium text-neutral-900">{candidate.name}</span>
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
+                      {sourceLabel ? <span className="mt-1 block text-xs font-medium text-amber-700">{sourceLabel}</span> : null}
                       <span className="mt-1 block text-xs text-neutral-500">
                         {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}
                       </span>

@@ -17,7 +17,7 @@ type CitySearchResponse = {
     country: string;
     count: number;
     generatedAt: string;
-    source?: "firestore" | "overpass";
+    source?: "firestore" | "overpass" | "psgc-firestore-native-osm-on-select";
   };
 };
 
@@ -150,12 +150,24 @@ function getBoundarySourceNotice(collection: BoundaryResponse, cityName: string)
 }
 
 function candidateSourceLabel(candidate: CityCandidate) {
+  if (candidate.boundaryStatus === "firestore") {
+    return "PSGC · Firestore polygon";
+  }
+
+  if (candidate.boundaryStatus === "native-zone") {
+    return "PSGC · Native polygon";
+  }
+
   if (candidate.sourceType === "overpass") {
     return "OSM fallback";
   }
 
   if (candidate.sourceType === "native-zone-sql") {
     return "Native zone";
+  }
+
+  if (candidate.sourceType === "psgc") {
+    return "PSGC · checks polygons on load";
   }
 
   return null;

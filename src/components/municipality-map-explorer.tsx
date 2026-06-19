@@ -270,6 +270,26 @@ function localityTypeLabel(candidate: LocalityCandidate) {
   return "Locality";
 }
 
+function localityBoundaryLabel(candidate: LocalityCandidate) {
+  if (candidate.boundaryStatus === "firestore") {
+    return "PSGC · Firestore polygon";
+  }
+
+  if (candidate.boundaryStatus === "native-zone") {
+    return "PSGC · Native polygon";
+  }
+
+  if (candidate.boundaryStatus === "osm") {
+    return "PSGC · OSM polygon";
+  }
+
+  if (candidate.sourceType === "psgc") {
+    return "PSGC · checks polygons on load";
+  }
+
+  return null;
+}
+
 function localitySortScore(candidate: LocalityCandidate, filterQuery: string) {
   const normalizedQuery = normalizeClientText(filterQuery);
 
@@ -1271,6 +1291,7 @@ export function MunicipalityMapExplorer() {
                 const candidateKey = getLocalityCandidateKey(candidate);
                 const localityColor = localityColors[candidateKey];
                 const isCurrent = candidateKey === (selectedLocality ? getLocalityCandidateKey(selectedLocality) : null);
+                const boundaryLabel = localityBoundaryLabel(candidate);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
@@ -1283,6 +1304,7 @@ export function MunicipalityMapExplorer() {
                         <span className="truncate">{candidate.name}</span>
                       </span>
                       <span className="mt-1 block text-xs text-neutral-600">{localityTypeLabel(candidate)}</span>
+                      {boundaryLabel ? <span className="mt-1 block text-xs font-medium text-amber-700">{boundaryLabel}</span> : null}
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-600">{candidate.locationLabel}</span> : null}
                     </button>
                     <button
@@ -1333,12 +1355,14 @@ export function MunicipalityMapExplorer() {
                 const localityColor = localityColors[candidateKey];
                 const isCurrent = candidateKey === (selectedLocality ? getLocalityCandidateKey(selectedLocality) : null);
                 const isTracked = trackedLocalities.some((entry) => getLocalityCandidateKey(entry) === candidateKey);
+                const boundaryLabel = localityBoundaryLabel(candidate);
 
                 return (
                   <div key={candidateKey} className={`simple-row ${isCurrent ? "simple-row-active" : ""}`}>
                     <button className="min-w-0 flex-1 text-left" onClick={() => void fetchBoundary(candidate)} type="button">
                       <span className="block truncate text-sm font-medium text-neutral-900">{candidate.name}</span>
                       <span className="mt-1 block text-xs text-neutral-600">{localityTypeLabel(candidate)}</span>
+                      {boundaryLabel ? <span className="mt-1 block text-xs font-medium text-amber-700">{boundaryLabel}</span> : null}
                       {candidate.locationLabel ? <span className="mt-1 block text-xs text-neutral-500">{candidate.locationLabel}</span> : null}
                       <span className="mt-1 block text-xs text-neutral-500">
                         {candidate.ref ? `Code ${candidate.ref}` : `ID ${candidate.id}`}

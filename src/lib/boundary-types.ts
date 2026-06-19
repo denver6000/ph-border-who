@@ -10,6 +10,7 @@ export type GeoJsonMultiPolygon = {
 
 export type CityBoundaryCandidate = {
   adminLevel?: string;
+  boundaryStatus?: "firestore" | "native-zone" | "osm" | "psgc-unchecked" | "missing";
   borderType?: string;
   center?: {
     lat: number;
@@ -37,7 +38,7 @@ export type BoundaryFeature = {
     name: string;
     place?: string;
     psgcCode?: string;
-    sourceType: "estimated" | "firestore-hdx-cod-ab" | "hdx-cod-ab" | "native-zone-sql" | "relation" | "way";
+    sourceType: "estimated" | "firestore-hdx-cod-ab" | "geojson" | "hdx-cod-ab" | "native-zone-sql" | "relation" | "way";
   };
 };
 
