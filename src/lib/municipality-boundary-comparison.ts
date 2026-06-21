@@ -2,6 +2,7 @@ import * as turf from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 
 import type { BoundaryFeature, BoundaryFeatureCollection } from "@/lib/boundary-types";
+import { dissolveBoundaryCollection } from "@/lib/non-overlapping-city-boundaries";
 import { queryNativeZones } from "@/lib/native-zones";
 import { queryCityBoundaryBySearch } from "@/lib/overpass";
 
@@ -120,14 +121,16 @@ export async function compareMunicipalityNativeAndOsm({
       province,
     }) as Promise<BoundaryFeatureCollection>,
   ]);
-  const nativeFeature = primaryFeature(native);
-  const osmFeature = primaryFeature(osm);
+  const dissolvedNative = dissolveBoundaryCollection(native);
+  const dissolvedOsm = dissolveBoundaryCollection(osm);
+  const nativeFeature = primaryFeature(dissolvedNative);
+  const osmFeature = primaryFeature(dissolvedOsm);
   const stats = overlapStats(toTurfFeature(nativeFeature), toTurfFeature(osmFeature));
 
   return {
     locality,
-    native,
-    osm,
+    native: dissolvedNative,
+    osm: dissolvedOsm,
     province,
     stats: {
       ...stats,

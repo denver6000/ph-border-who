@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import { fetchWithAppApiKey } from "@/lib/app-api-key-fetch";
 import type { BoundaryFeatureCollection, CityBoundaryCandidate } from "@/lib/boundary-types";
-import { resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
+import { dissolveBoundaryCollection, resolveNonOverlappingBoundaryCollections } from "@/lib/non-overlapping-city-boundaries";
 
 type BoundaryFeature = BoundaryFeatureCollection["features"][number];
 type BoundaryResponse = BoundaryFeatureCollection;
@@ -437,7 +437,8 @@ export function MunicipalityMapExplorer() {
   }, [boundaryCache, data, selectedLocality, selectedLocalityKey, trackedLocalities]);
 
   const resolvedDisplayedBoundaries = useMemo(() => {
-    const resolvedCollections = resolveNonOverlappingBoundaryCollections(displayedBoundaries.map((entry) => entry.data));
+    const dissolvedCollections = displayedBoundaries.map((entry) => dissolveBoundaryCollection(entry.data));
+    const resolvedCollections = resolveNonOverlappingBoundaryCollections(dissolvedCollections);
 
     return displayedBoundaries
       .map((entry, index) => ({

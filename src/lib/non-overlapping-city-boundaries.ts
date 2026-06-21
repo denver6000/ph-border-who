@@ -23,6 +23,43 @@ function mergeFeatures(features: TurfPolygonFeature[]): Feature<Polygon | MultiP
   return union(featureCollection(features)) ?? null;
 }
 
+export function dissolveBoundaryCollection<T extends BoundaryFeatureCollection>(collection: T): T {
+  if (collection.features.length <= 1) {
+    return collection;
+  }
+
+  const primaryFeature = collection.features[0];
+  let dissolvedGeometry: Feature<Polygon | MultiPolygon> | null = null;
+
+  try {
+    dissolvedGeometry = mergeFeatures(collection.features.map(toTurfFeature));
+  } catch {
+    return collection;
+  }
+
+  if (!dissolvedGeometry || !primaryFeature) {
+    return collection;
+  }
+
+  return {
+    ...collection,
+    features: [
+      {
+        ...primaryFeature,
+        geometry: dissolvedGeometry.geometry,
+        properties: {
+          ...primaryFeature.properties,
+          name: collection.metadata.city || primaryFeature.properties.name,
+        },
+      },
+    ],
+    metadata: {
+      ...collection.metadata,
+      count: 1,
+    },
+  };
+}
+
 export function resolveNonOverlappingBoundaryCollections<T extends BoundaryFeatureCollection>(collections: T[]): T[] {
   let claimedGeometry: Feature<Polygon | MultiPolygon> | null = null;
 
