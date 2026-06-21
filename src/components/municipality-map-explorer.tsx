@@ -576,7 +576,7 @@ export function MunicipalityMapExplorer() {
 
     if (missingCount || incompatibleCount) {
       setWarning(
-        `${missingCount} localit${missingCount === 1 ? "y is" : "ies are"} still missing boundaries. ${incompatibleCount} OSM fallback${incompatibleCount === 1 ? " was" : "s were"} held back by compatibility checks. ${nativeCount} native zone${nativeCount === 1 ? " was" : "s were"} rendered.`,
+        `${missingCount} municipalit${missingCount === 1 ? "y is" : "ies are"} still missing boundaries. ${incompatibleCount} OSM fallback${incompatibleCount === 1 ? " was" : "s were"} held back by compatibility checks. ${nativeCount} native zone${nativeCount === 1 ? " was" : "s were"} rendered.`,
       );
       return;
     }
@@ -714,7 +714,7 @@ export function MunicipalityMapExplorer() {
       if (!response.ok) {
         if (response.status === 404) {
           if (reportErrors) {
-            setWarning("Polygons do not exist for this locality.");
+            setWarning("Polygons do not exist for this municipality.");
           }
           return null;
         }
@@ -739,7 +739,7 @@ export function MunicipalityMapExplorer() {
         return null;
       }
 
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to load locality boundary.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to load municipality boundary.";
       if (reportErrors) {
         setError(message);
       }
@@ -757,7 +757,7 @@ export function MunicipalityMapExplorer() {
 
     if (!candidate) {
       setComparisonData(null);
-      setComparisonError("Select a municipality or city to compare.");
+      setComparisonError("Select a municipality to compare.");
       return;
     }
 
@@ -1040,13 +1040,13 @@ export function MunicipalityMapExplorer() {
 
       setLocalityCandidates(payload.municipalities);
       setLoadedProvinceLabel(payload.metadata.province);
-      setWarning(payload.municipalities.length ? null : "No localities were found for this province.");
+      setWarning(payload.municipalities.length ? null : "No municipalities were found for this province.");
     } catch (caughtError) {
       if (provinceRequestIdRef.current !== requestId) {
         return;
       }
 
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to load province localities.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to load province municipalities.";
       setError(message);
       setLocalityCandidates([]);
     } finally {
@@ -1132,9 +1132,9 @@ export function MunicipalityMapExplorer() {
       });
 
       if (!successfulCandidates.length) {
-        setWarning("No visible localities could be loaded.");
+        setWarning("No visible municipalities could be loaded.");
       } else if (failedCount) {
-        setWarning(`${failedCount} visible localit${failedCount === 1 ? "y was" : "ies were"} skipped because no boundary could be loaded.`);
+        setWarning(`${failedCount} visible municipalit${failedCount === 1 ? "y was" : "ies were"} skipped because no boundary could be loaded.`);
       }
     } finally {
       setBulkSelecting(false);
@@ -1149,7 +1149,7 @@ export function MunicipalityMapExplorer() {
 
   async function exportZone(format: ExportFormat) {
     if (!exportCandidates.length) {
-      setError("Load at least one locality before exporting.");
+      setError("Load at least one municipality before exporting.");
       return;
     }
 
@@ -1173,7 +1173,7 @@ export function MunicipalityMapExplorer() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { details?: string; error?: string };
-        throw new Error(payload.error ?? payload.details ?? "Unable to export selected locality zones.");
+        throw new Error(payload.error ?? payload.details ?? "Unable to export selected municipality zones.");
       }
 
       const blob = await response.blob();
@@ -1183,14 +1183,14 @@ export function MunicipalityMapExplorer() {
       anchor.download =
         readDownloadFilename(response) ??
         (exportCandidates.length === 1
-          ? `${exportCandidates[0].name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-city-zone.${format}`
-          : `selected-${exportCandidates.length}-cities-zone.${format}`);
+          ? `${exportCandidates[0].name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-municipality-zone.${format}`
+          : `selected-${exportCandidates.length}-municipalities-zone.${format}`);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(downloadUrl);
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Unable to export selected locality zones.";
+      const message = caughtError instanceof Error ? caughtError.message : "Unable to export selected municipality zones.";
       setError(message);
     } finally {
       setExportingFormat(null);
@@ -1219,7 +1219,7 @@ export function MunicipalityMapExplorer() {
       <aside className="workspace-sidebar">
         <div className="workspace-scroll">
           <section className="sidebar-section">
-            <p className="sidebar-kicker">Province Localities</p>
+            <p className="sidebar-kicker">Province Municipalities</p>
             <h1 className="sidebar-title">Municipalities</h1>
           </section>
 
@@ -1245,7 +1245,7 @@ export function MunicipalityMapExplorer() {
                 className="google-input"
                 value={filterQuery}
                 onChange={(event) => setFilterQuery(event.target.value)}
-                placeholder="Filter loaded localities"
+                placeholder="Filter loaded municipalities"
               />
             </div>
             <div className="mt-4 meta-strip">
@@ -1264,7 +1264,7 @@ export function MunicipalityMapExplorer() {
                 onClick={() => void exportZone("json")}
                 type="button"
               >
-                {exportingFormat === "json" ? "Exporting..." : exportCandidates.length > 1 ? "Export Localities JSON" : "Export Locality JSON"}
+                {exportingFormat === "json" ? "Exporting..." : exportCandidates.length > 1 ? "Export Municipalities JSON" : "Export Municipality JSON"}
               </button>
               <button
                 className="google-button rounded-full border border-neutral-200 bg-white px-5 py-3"
@@ -1272,7 +1272,7 @@ export function MunicipalityMapExplorer() {
                 onClick={() => void exportZone("sql")}
                 type="button"
               >
-                {exportingFormat === "sql" ? "Exporting..." : exportCandidates.length > 1 ? "Export Localities SQL" : "Export Locality SQL"}
+                {exportingFormat === "sql" ? "Exporting..." : exportCandidates.length > 1 ? "Export Municipalities SQL" : "Export Municipality SQL"}
               </button>
             </div>
             {warning ? <p className="mt-4 text-sm leading-6 text-amber-700">{warning}</p> : null}
@@ -1281,12 +1281,12 @@ export function MunicipalityMapExplorer() {
 
           <section className="sidebar-section">
             <div className="flex items-center justify-between gap-3">
-              <p className="sidebar-subtitle">Selected Localities</p>
+              <p className="sidebar-subtitle">Selected Municipalities</p>
               <span className="text-xs text-neutral-500">{trackedLocalities.length} tracked</span>
             </div>
             <div className="mt-4">
               {!trackedLocalities.length ? (
-                <p className="text-sm leading-7 text-neutral-500">Choose localities from the loaded province to keep them here.</p>
+                <p className="text-sm leading-7 text-neutral-500">Choose municipalities from the loaded province to keep them here.</p>
               ) : null}
               {trackedLocalities.map((candidate) => {
                 const candidateKey = getLocalityCandidateKey(candidate);
@@ -1323,7 +1323,7 @@ export function MunicipalityMapExplorer() {
 
           <section className="sidebar-section">
             <div className="flex items-center justify-between gap-3">
-              <p className="sidebar-subtitle">Loaded Localities</p>
+              <p className="sidebar-subtitle">Loaded Municipalities</p>
               <span className="text-xs text-neutral-500">{provinceLoading ? "Loading..." : `${filteredLocalityCandidates.length} visible`}</span>
             </div>
             <div className="mt-4 flex gap-3">
@@ -1346,10 +1346,10 @@ export function MunicipalityMapExplorer() {
             </div>
             <div className="mt-4">
               {!localityCandidates.length && !provinceLoading ? (
-                <p className="text-sm leading-7 text-neutral-500">No loaded localities.</p>
+                <p className="text-sm leading-7 text-neutral-500">No loaded municipalities.</p>
               ) : null}
               {localityCandidates.length && !filteredLocalityCandidates.length ? (
-                <p className="text-sm leading-7 text-neutral-500">No loaded localities match this filter.</p>
+                <p className="text-sm leading-7 text-neutral-500">No loaded municipalities match this filter.</p>
               ) : null}
               {filteredLocalityCandidates.map((candidate) => {
                 const candidateKey = getLocalityCandidateKey(candidate);
@@ -1417,7 +1417,7 @@ export function MunicipalityMapExplorer() {
                 ? comparisonData?.locality ?? selectedLocality?.name ?? "OSM vs Native"
                 : selectedFeature
                   ? selectedFeature.properties.name
-                  : "Province locality map"}
+                  : "Province municipality map"}
             </h2>
             <p className="mt-1 text-sm text-neutral-600">
               {activeMapTab === "comparison"
@@ -1426,7 +1426,7 @@ export function MunicipalityMapExplorer() {
                   ? "Boundary selected"
                   : loading
                     ? "Loading..."
-                    : "Load a province, then select a locality."}
+                    : "Load a province, then select a municipality."}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -1438,7 +1438,7 @@ export function MunicipalityMapExplorer() {
                 role="tab"
                 type="button"
               >
-                Localities
+                Municipalities
               </button>
               <button
                 aria-selected={activeMapTab === "comparison"}

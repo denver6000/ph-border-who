@@ -104,6 +104,10 @@ function toOfficialCandidate(locality: PsgcLocality, province: string): Official
   };
 }
 
+function onlyOfficialMunicipalities(localities: PsgcLocality[]) {
+  return localities.filter((locality) => locality.isMunicipality);
+}
+
 function toCityCandidate(locality: OfficialLocalityCandidate, firestoreCandidate?: CityBoundaryCandidate): CityBoundaryCandidate {
   const sourceType = firestoreCandidate?.sourceType ?? "psgc";
 
@@ -232,7 +236,7 @@ function createFirebaseBoundaryRepository(): BoundaryRepository {
 
       return boundary?.features.length ? boundary : null;
     },
-    listCandidates: (province) => queryFirestoreCitiesByProvince({ province }),
+    listCandidates: (province) => queryFirestoreCitiesByProvince({ kind: "municipality", province }),
     source: "firebase",
   };
 }
@@ -456,7 +460,7 @@ export async function resolveMergedMunicipalityBoundaries({
   ]);
   const localities = mergeOfficialAndNativeLocalities({
     nativeCandidates,
-    officialLocalities,
+    officialLocalities: onlyOfficialMunicipalities(officialLocalities),
     province,
   });
   const firebaseResults = await resolveFirebaseBoundaries({
@@ -524,7 +528,7 @@ export async function listMunicipalityCandidates({
   ]);
   const localities = mergeOfficialAndNativeLocalities({
     nativeCandidates,
-    officialLocalities,
+    officialLocalities: onlyOfficialMunicipalities(officialLocalities),
     province,
   });
   const candidatesByKey = new Map<string, CityBoundaryCandidate>();
